@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  mariadb:
+    image: mariadb:latest
+    container_name: sftp-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: sftp_manager
+      MYSQL_USER: sftp_user
+      MYSQL_PASSWORD: sftp_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - sftp-network
+
+  app:
+    build: .
+    container_name: sftp-manager
+    depends_on:
+      - mariadb
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/sftp_manager
+      SPRING_DATASOURCE_USERNAME: sftp_user
+      SPRING_DATASOURCE_PASSWORD: sftp_password
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    networks:
+      - sftp-network
+
+volumes:
+  mariadb_data:
+
+networks:
+  sftp-network:
+    driver: bridge

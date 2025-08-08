@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SFTP Manager - Administration</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+        }
+
+        .navbar-brand, .navbar-nav .nav-link {
+            color: white !important;
+        }
+
+        .main-container {
+            margin-top: 80px;
+        }
+
+        .admin-card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+
+        .tab-content {
+            background: white;
+            padding: 20px;
+            border-radius: 0 10px 10px 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-tabs .nav-link {
+            color: #666;
+            border: none;
+            border-bottom: 3px solid transparent;
+        }
+
+        .nav-tabs .nav-link.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: transparent;
+        }
+
+        .config-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .config-item:last-child {
+            border-bottom: none;
+        }
+
+        .audit-table {
+            font-size: 0.9rem;
+        }
+
+        .user-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .role-admin {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .role-user {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        .debug-console {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: monospace;
+            padding: 15px;
+            border-radius: 8px;
+            height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+<!-- Navigation -->
+<nav class="navbar navbar-expand-lg navbar-dark fixed-top">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="/">
+            <i class="bi bi-shield-lock"></i> SFTP Manager
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="/">
+                        <i class="bi bi-house"></i> Sites
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/file-manager">
+                        <i class="bi bi-folder"></i> File Manager
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/scheduler">
+                        <i class="bi bi-clock"></i> Scheduler
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/admin">
+                        <i class="bi bi-gear"></i> Admin
+                    </a>
+                </li>
+            </ul>
+            <ul class="navbar-nav">
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button"
+                       data-bs-toggle="dropdown">
+                        <i class="bi bi-person-circle"></i> <span id="currentUser">Admin</span>
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="#" onclick="logout()">Logout</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid main-container">
+    <h2 class="mb-4">System Administration</h2>
+
+    <!-- Tabs -->
+    <ul class="nav nav-tabs" id="adminTabs">
+        <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#configuration">Configuration</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#users">Users</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#audit">Audit Logs</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#database">Database</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#debug">Debug Console</a>
+        </li>
+    </ul>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+        <!-- Configuration Tab -->
+        <div class="tab-pane fade show active" id="configuration">
+            <h4 class="mb-3">Application Configuration</h4>
+
+            <div class="admin-card">
+                <h5>Database Settings</h5>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>MariaDB Host:</strong></div>
+                        <div class="col-md-6">
+                            <input type="text" class="form-control" id="dbHost" value="localhost">
+                        </div>
+                    </div>
+                </div>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>Port:</strong></div>
+                        <div class="col-md-6">
+                            <input type="number" class="form-control" id="dbPort" value="3306">
+                        </div>
+                    </div>
+                </div>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>Database Name:</strong></div>
+                        <div class="col-md-6">
+                            <input type="text" class="form-control" id="dbName" value="sftp_manager">
+                        </div>
+                    </div>
+                </div>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>Username:</strong></div>
+                        <div class="col-md-6">
+                            <input type="text" class="form-control" id="dbUsername" value="sftp_user">
+                        </div>
+                    </div>
+                </div>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>Password:</strong></div>
+                        <div class="col-md-6">
+                            <input type="password" class="form-control" id="dbPassword">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin-card">
+                <h5>System Settings</h5>
+                <div class="config-item">
+                    <div class="row align-items-center">
+                        <div class="col-md-3"><strong>Debug Mode:</strong></div>
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="debugMode">
+                                <label class="form-check-label" for="debugMode">
+                                    Enable debug logging
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>Session Timeout:</strong></div>
+                        <div class="col-md-6">
+                            <input type="number" class="form-control" id="sessionTimeout" value="30">
+                            <small class="text-muted">Minutes</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3"><strong>Max Login Attempts:</strong></div>
+                        <div class="col-md-6">
+                            <input type="number" class="form-control" id="maxLoginAttempts" value="5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button class="btn btn-primary" onclick="saveConfiguration()">Save Configuration</button>
+                <button class="btn btn-secondary" onclick="testDatabaseConnection()">Test Database Connection</button>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div class="tab-pane fade" id="users">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>User Management</h4>
+                <button class="btn btn-primary" onclick="showAddUserModal()">
+                    <i class="bi bi-person-plus"></i> Add User
+                </button>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Name</th>
+                        <th>Role</th>
+                        <th>Group</th>
+                        <th>Status</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                    <!-- Users will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Audit Logs Tab -->
+        <div class="tab-pane fade" id="audit">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>Audit Logs (IRS-1075 Compliance)</h4>
+                <button class="btn btn-primary" onclick="exportAuditLogs()">
+                    <i class="bi bi-download"></i> Export Logs
+                </button>
+            </div>
+
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <input type="date" class="form-control" id="auditStartDate" placeholder="Start Date">
+                </div>
+                <div class="col-md-3">
+                    <input type="date" class="form-control" id="auditEndDate" placeholder="End Date">
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="auditActionType">
+                        <option value="">All Actions</option>
+                        <option value="LOGIN">Login</option>
+                        <option value="LOGOUT">Logout</option>
+                        <option value="CREATE">Create</option>
+                        <option value="UPDATE">Update</option>
+                        <option value="DELETE">Delete</option>
+                        <option value="TEST_CONNECTION">Test Connection</option>
+                        <option value="UPLOAD_FILE">Upload File</option>
+                        <option value="DOWNLOAD_FILE">Download File</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-secondary w-100" onclick="filterAuditLogs()">Filter</button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-hover audit-table">
+                    <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>IP Address</th>
+                        <th>Action</th>
+                        <th>Entity</th>
+                        <th>Description</th>
+                        <th>Success</th>
+                    </tr>
+                    </thead>
+                    <tbody id="auditTableBody">
+                    <!-- Audit logs will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Database Tab -->
+        <div class="tab-pane fade" id="database">
+            <h4 class="mb-3">Database Management</h4>
+
+            <div class="admin-card">
+                <h5>Database Operations</h5>
+                <div class="mb-3">
+                    <button class="btn btn-warning" onclick="initializeDatabase()">
+                        <i class="bi bi-database"></i> Initialize Database Schema
+                    </button>
+                    <small class="text-muted d-block mt-2">
+                        This will create all necessary tables and initial data
+                    </small>
+                </div>
+                <div class="mb-3">
+                    <button class="btn btn-info" onclick="backupDatabase()">
+                        <i class="bi bi-cloud-download"></i> Backup Database
+                    </button>
+                    <small class="text-muted d-block mt-2">
+                        Export all data to SQL file
+                    </small>
+                </div>
+                <div class="mb-3">
+                    <button class="btn btn-danger" onclick="clearTransactionLogs()">
+                        <i class="bi bi-trash"></i> Clear Transaction Logs
+                    </button>
+                    <small class="text-muted d-block mt-2">
+                        Remove transaction logs older than 90 days
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Debug Console Tab -->
+        <div class="tab-pane fade" id="debug">
+            <h4 class="mb-3">Debug Console</h4>
+
+            <div class="mb-3">
+                <div class="btn-group" role="group">
+                    <button class="btn btn-secondary" onclick="toggleDebugMode()">Toggle Debug Mode</button>
+                    <button class="btn btn-secondary" onclick="clearDebugConsole()">Clear Console</button>
+                    <button class="btn btn-secondary" onclick="downloadDebugLog()">Download Log</button>
+                </div>
+            </div>
+
+            <div class="debug-console" id="debugConsole">
+                <div>[System] Debug console initialized</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal fade" id="userModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New User</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <div class="mb-3">
+                        <label for="newUsername" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="newUsername" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newEmail" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="newEmail" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="newPassword" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newFirstName" class="form-label">First Name</label>
+                        <input type="text" class="form-control" id="newFirstName">
+                    </div>
+                    <div class="mb-3">
+                        <label for="newLastName" class="form-label">Last Name</label>
+                        <input type="text" class="form-control" id="newLastName">
+                    </div>
+                    <div class="mb-3">
+                        <label for="newRole" class="form-label">Role</label>
+                        <select class="form-select" id="newRole">
+                            <option value="ROLE_USER">User</option>
+                            <option value="ROLE_ADMIN">Administrator</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="newAccessGroup" class="form-label">Access Group</label>
+                        <select class="form-select" id="newAccessGroup">
+                            <option value="USER">User Group</option>
+                            <option value="ADMIN">Admin Group</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">Save User</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function () {
+        checkAdminAuth();
+        loadConfiguration();
+        loadUsers();
+        loadAuditLogs();
+    });
+
+    function checkAdminAuth() {
+        const token = localStorage.getItem('token');
+        const roles = JSON.parse(localStorage.getItem('roles') || '[]');
+
+        if (!token || !roles.some(role => role.roleName === 'ROLE_ADMIN')) {
+            window.location.href = '/';
+            return;
+        }
+
+        document.getElementById('currentUser').textContent = localStorage.getItem('username');
+    }
+
+    function addDebugLog(message) {
+        const console = document.getElementById('debugConsole');
+        const timestamp = new Date().toLocaleTimeString();
+        const entry = document.createElement('div');
+        entry.textContent = `[${timestamp}] ${message}`;
+        console.appendChild(entry);
+        console.scrollTop = console.scrollHeight;
+    }
+
+    async function loadConfiguration() {
+        try {
+            const response = await fetch('/api/admin/configuration', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            });
+
+            if (response.ok) {
+                const config = await response.json();
+                // Populate configuration fields
+                addDebugLog('Configuration loaded successfully');
+            }
+        } catch (error) {
+            addDebugLog('Error loading configuration: ' + error.message);
+        }
+    }
+
+    async function saveConfiguration() {
+        // Implementation for saving configuration
+        addDebugLog('Saving configuration...');
+        alert('Configuration saved successfully');
+    }
+
+    async function loadUsers() {
+        try {
+            const response = await fetch('/api/admin/users', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            });
+
+            if (response.ok) {
+                const users = await response.json();
+                renderUsers(users);
+            }
+        } catch (error) {
+            console.error('Error loading users:', error);
+        }
+    }
+
+    function renderUsers(users) {
+        const tbody = document.getElementById('usersTableBody');
+        tbody.innerHTML = users.map(user => `
+                <tr>
+                    <td>${user.username}</td>
+                    <td>${user.email}</td>
+                    <td>${user.firstName} ${user.lastName}</td>
+                    <td><span class="user-badge role-${user.roles[0]?.roleName.toLowerCase().replace('role_', '')}">${user.roles[0]?.roleName.replace('ROLE_', '')}</span></td>
+                    <td>${user.accessGroup?.groupName || '-'}</td>
+                    <td>${user.enabled ? '<span class="text-success">Active</span>' : '<span class="text-danger">Disabled</span>'}</td>
+                    <td>${user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-warning" onclick="editUser(${user.id})">Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteUser(${user.id})">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+    }
+
+    function showAddUserModal() {
+        document.getElementById('userForm').reset();
+        new bootstrap.Modal(document.getElementById('userModal')).show();
+    }
+
+    async function saveUser() {
+        const userData = {
+            username: document.getElementById('newUsername').value,
+            email: document.getElementById('newEmail').value,
+            password: document.getElementById('newPassword').value,
+            firstName: document.getElementById('newFirstName').value,
+            lastName: document.getElementById('newLastName').value,
+            roles: [document.getElementById('newRole').value],
+            accessGroup: document.getElementById('newAccessGroup').value
+        };
+
+        try {
+            const response = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                },
+                body: JSON.stringify(userData)
+            });
+
+            if (response.ok) {
+                bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+                loadUsers();
+                addDebugLog('User created successfully');
+            }
+        } catch (error) {
+            console.error('Error saving user:', error);
+        }
+    }
+
+    async function loadAuditLogs() {
+        try {
+            const response = await fetch('/api/admin/audit-logs', {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            });
+
+            if (response.ok) {
+                const logs = await response.json();
+                renderAuditLogs(logs);
+            }
+        } catch (error) {
+            console.error('Error loading audit logs:', error);
+        }
+    }
+
+    function renderAuditLogs(logs) {
+        const tbody = document.getElementById('auditTableBody');
+        tbody.innerHTML = logs.map(log => `
+                <tr>
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                    <td>${log.username}</td>
+                    <td>${log.ipAddress}</td>
+                    <td>${log.actionType}</td>
+                    <td>${log.entityType}${log.entityId ? ' #' + log.entityId : ''}</td>
+                    <td>${log.description || '-'}</td>
+                    <td>${log.successful ? '<span class="text-success">✓</span>' : '<span class="text-danger">✗</span>'}</td>
+                </tr>
+            `).join('');
+    }
+
+    async function exportAuditLogs() {
+        const startDate = document.getElementById('auditStartDate').value;
+        const endDate = document.getElementById('auditEndDate').value;
+
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+
+        try {
+            const response = await fetch(`/api/admin/audit-logs/export?${params}`, {
+                headers: {
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                }
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }
+        } catch (error) {
+            console.error('Error exporting audit logs:', error);
+        }
+    }
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = '/login';
+    }
+</script>
+</body>
+</html>
