@@ -1,283 +1,230 @@
 /**
- * Copyright © 2025 NearStar Incorporated. All rights reserved.
- *
- * This software and its source code are proprietary and confidential
- * to NearStar Incorporated. Unauthorized copying, modification,
- * distribution, or use of this software, in whole or in part,
+ * NearStar, Inc.
+ * 410 E. Main Street
+ * Lewisville, Texas  76057
+ * Tel: 1.972.221.4068
+ * <p>
+ * Copyright � 2025 NearStar Incorporated. All rights reserved.
+ * <p>
+ * <p>
+ * THIS IS UNPUBLISHED PROPRIETARY SOURCE CODE OF NEARSTAR Inc.
+ * <p>
+ * THIS COPYRIGHT NOTICE DOES NOT EVIDENCE ANY
+ * ACTUAL OR INTENDED PUBLICATION OF SUCH SOURCE CODE.
+ * This software and its source code are proprietary and confidential to NearStar Incorporated.
+ * Unauthorized copying, modification, distribution, or use of this software, in whole or in part,
  * is strictly prohibited without the prior written consent of the copyright holder.
- *
  * Portions of this software may utilize or be derived from open-source software
  * and publicly available frameworks licensed under their respective licenses.
- *
+ * <p>
  * This code may also include contributions developed with the assistance of AI-based tools.
- *
  * All open-source dependencies are used in accordance with their applicable licenses,
  * and full attribution is maintained in the corresponding documentation (e.g., NOTICE or LICENSE files).
+ * For inquiries regarding licensing or usage, please make request by going to nearstar.com.
  *
- * For inquiries regarding licensing or usage, please contact: bill.sanders@nearstar.com
- *
- * @file        UserService.java
- * @author      Bill Sanders <bill.sanders@nearstar.com>
- * @version     1.0.0
- * @date        2025-08-03
- * @brief       Brief description of the file's purpose
- *
- * @copyright   Copyright (c) 2025 NearStar Incorporated
- * @license     MIT License
- *
- * @modified    2025-08-06 - Bill Sanders - Initialized in Git
- *
- * @todo
- * @bug
- * @deprecated
+ * @file ${NAME}.java
+ * @author ${USER} <${USER}@nearstar.com>
+ * @version 1.0.0
+ * @date ${DATE}
+ * @project SFTP Site Management System
+ * @package com.nearstar.sftpmanager
+ * <p>
+ * Copyright    ${YEAR} Nearstar
+ * @license Proprietary
+ * @modified
  */
 package com.nearstar.sftpmanager.service;
 
+import at.favre.lib.crypto.bcrypt.BCrypt;
 import com.nearstar.sftpmanager.model.dto.UserDTO;
-import com.nearstar.sftpmanager.model.entity.AccessGroup;
-import com.nearstar.sftpmanager.model.entity.Role;
-import com.nearstar.sftpmanager.model.entity.TransactionLog;
+import com.nearstar.sftpmanager.model.dto.UserSession;
 import com.nearstar.sftpmanager.model.entity.User;
-import com.nearstar.sftpmanager.repository.AccessGroupRepository;
-import com.nearstar.sftpmanager.repository.RoleRepository;
-import com.nearstar.sftpmanager.repository.TransactionLogRepository;
+import com.nearstar.sftpmanager.model.enums.UserRole;
 import com.nearstar.sftpmanager.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
-public class UserService {
+public class UserService
+{
 
-    private final UserRepository userRepository;
-    private final RoleRepository roleRepository;
-    private final AccessGroupRepository accessGroupRepository;
-    private final TransactionLogRepository transactionLogRepository;
-    private final PasswordEncoder passwordEncoder;
+    @Autowired
+    private UserRepository userRepository;
 
-    @Transactional(readOnly = true)
-    public List<UserDTO> getAllUsers() {
-        return userRepository.findAll().stream()
-                .map(this::convertToDTO)
-                .collect(Collectors.toList());
+    // Use standalone BCrypt instead of Spring Security's BCryptPasswordEncoder
+    private final BCrypt.Hasher bcrypt = BCrypt.withDefaults();
+
+    public User authenticate( String username, String password )
+    {
+        Optional<User> userOpt = userRepository.findByUsername( username );
+        if ( userOpt.isEmpty() )
+        {
+            return null;
+        }
+
+        User user = userOpt.get();
+
+        // Use standalone BCrypt for password verification
+        if ( !BCrypt.verifyer().verify( password.toCharArray(), user.getPassword() ).verified )
+        {
+            user.setFailedAttempts( user.getFailedAttempts() + 1 );
+            if ( user.getFailedAttempts() >= 5 )
+            {
+                user.setLocked( true );
+            }
+            userRepository.save( user );
+            return null;
+        }
+
+        if ( user.getFailedAttempts() > 0 )
+        {
+            user.setFailedAttempts( 0 );
+            userRepository.save( user );
+        }
+
+        return user;
     }
 
-    @Transactional(readOnly = true)
-    public Optional<UserDTO> getUserById(Long id) {
-        return userRepository.findById(id)
-                .map(this::convertToDTO);
-    }
+    public UserSession createUserSession( User user )
+    {
+        List<String> permissions = new ArrayList<>();
 
-    @Transactional(readOnly = true)
-    public Optional<User> getUserByUsername(String username) {
-        return userRepository.findByUsername(username);
+        switch (user.getRole())
+        {
+            case ADMIN:
+                permissions.add( "sites.manage" );
+                permissions.add( "users.manage" );
+                permissions.add( "files.manage" );
+                permissions.add( "settings.manage" );
+                permissions.add( "reports.view" );
+                break;
+            case USER:
+                permissions.add( "sites.view" );
+                permissions.add( "files.manage" );
+                permissions.add( "reports.view" );
+                break;
+            case VIEWER:
+                permissions.add( "sites.view" );
+                permissions.add( "files.view" );
+                break;
+            default:
+                permissions.add( "files.view" );
+                break;
+        }
+
+        UserSession session = new UserSession( user.getUsername(), user.getRole(), permissions );
+        session.setEmail( user.getEmail() );
+        session.setFullName( user.getFullName() );
+        return session;
     }
 
     @Transactional
-    public UserDTO createUser(UserDTO userDTO) {
-        // Check if username already exists
-        if (userRepository.existsByUsername(userDTO.getUsername())) {
-            throw new IllegalArgumentException("Username already exists");
-        }
+    public void updateLastLogin( Long userId )
+    {
+        userRepository.updateLastLogin( userId, LocalDateTime.now() );
+    }
 
-        // Check if email already exists
-        if (userRepository.existsByEmail(userDTO.getEmail())) {
-            throw new IllegalArgumentException("Email already exists");
+    public User createUser( UserDTO userDTO )
+    {
+        if ( userRepository.existsByUsername( userDTO.getUsername() ) )
+        {
+            throw new RuntimeException( "Username already exists" );
         }
 
         User user = new User();
-        user.setUsername(userDTO.getUsername());
-        user.setEmail(userDTO.getEmail());
-        user.setPassword(passwordEncoder.encode(userDTO.getPassword()));
-        user.setFirstName(userDTO.getFirstName());
-        user.setLastName(userDTO.getLastName());
-        user.setEnabled(userDTO.isEnabled());
-        user.setCreatedAt(LocalDateTime.now());
+        user.setUsername( userDTO.getUsername() );
+        // Use standalone BCrypt for password encoding
+        user.setPassword( bcrypt.hashToString( 12, userDTO.getPassword().toCharArray() ) );
+        user.setEmail( userDTO.getEmail() );
+        user.setFullName( userDTO.getFullName() );
+        user.setRole( UserRole.valueOf( userDTO.getRole() ) );
+        user.setActive( true );
+        user.setCreatedAt( LocalDateTime.now() );
 
-        // Set roles
-        Set<Role> roles = new HashSet<>();
-        for (String roleName : userDTO.getRoles()) {
-            Role role = roleRepository.findByName(roleName)
-                    .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleName));
-            roles.add(role);
-        }
-        user.setRoles(roles);
-
-        // Set access group
-        if (userDTO.getAccessGroup() != null) {
-            AccessGroup accessGroup = accessGroupRepository.findByName(userDTO.getAccessGroup())
-                    .orElseThrow(() -> new IllegalArgumentException("Access group not found"));
-            user.setAccessGroup(accessGroup);
-        }
-
-        User savedUser = userRepository.save(user);
-        log.info("Created new user: {}", savedUser.getUsername());
-
-        return convertToDTO(savedUser);
+        return userRepository.save( user );
     }
 
-    @Transactional
-    public UserDTO updateUser(UserDTO userDTO) {
-        User user = userRepository.findById(userDTO.getId())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    public User updateUser( UserDTO userDTO )
+    {
+        User user = userRepository.findById( userDTO.getId() )
+                .orElseThrow( () -> new RuntimeException( "User not found" ) );
 
-        // Check if email is being changed and already exists
-        if (!user.getEmail().equals(userDTO.getEmail()) &&
-                userRepository.existsByEmail(userDTO.getEmail())) {
-            throw new IllegalArgumentException("Email already exists");
+        user.setEmail( userDTO.getEmail() );
+        user.setFullName( userDTO.getFullName() );
+        user.setRole( UserRole.valueOf( userDTO.getRole() ) );
+
+        if ( userDTO.getPassword() != null && !userDTO.getPassword().isEmpty() )
+        {
+            // Use standalone BCrypt for password encoding
+            user.setPassword( bcrypt.hashToString( 12, userDTO.getPassword().toCharArray() ) );
         }
 
-        user.setEmail(userDTO.getEmail());
-        user.setFirstName(userDTO.getFirstName());
-        user.setLastName(userDTO.getLastName());
-        user.setEnabled(userDTO.isEnabled());
-
-        // Update password if provided
-        if (userDTO.getPassword() != null && !userDTO.getPassword().isEmpty()) {
-            user.setPassword(passwordEncoder.encode(userDTO.getPassword()));
-            user.setPasswordChangedAt(LocalDateTime.now());
-        }
-
-        // Update roles
-        Set<Role> roles = new HashSet<>();
-        for (String roleName : userDTO.getRoles()) {
-            Role role = roleRepository.findByName(roleName)
-                    .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleName));
-            roles.add(role);
-        }
-        user.setRoles(roles);
-
-        // Update access group
-        if (userDTO.getAccessGroup() != null) {
-            AccessGroup accessGroup = accessGroupRepository.findByName(userDTO.getAccessGroup())
-                    .orElseThrow(() -> new IllegalArgumentException("Access group not found"));
-            user.setAccessGroup(accessGroup);
-        }
-
-        User updatedUser = userRepository.save(user);
-        log.info("Updated user: {}", updatedUser.getUsername());
-
-        return convertToDTO(updatedUser);
+        return userRepository.save( user );
     }
 
-    @Transactional
-    public void deleteUser(Long id) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        userRepository.delete(user);
-        log.info("Deleted user: {}", user.getUsername());
+    public void deleteUser( Long userId )
+    {
+        if ( !userRepository.existsById( userId ) )
+        {
+            throw new RuntimeException( "User not found" );
+        }
+        userRepository.deleteById( userId );
     }
 
-    @Transactional
-    public void changePassword(Long userId, String oldPassword, String newPassword) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    public String resetUserPassword( Long userId )
+    {
+        User user = userRepository.findById( userId )
+                .orElseThrow( () -> new RuntimeException( "User not found" ) );
 
-        // Verify old password
-        if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
-            throw new IllegalArgumentException("Current password is incorrect");
-        }
+        String tempPassword = UUID.randomUUID().toString().substring( 0, 8 );
+        // Use standalone BCrypt for password encoding
+        user.setPassword( bcrypt.hashToString( 12, tempPassword.toCharArray() ) );
 
-        // Validate new password
-        if (newPassword.length() < 8) {
-            throw new IllegalArgumentException("Password must be at least 8 characters long");
-        }
-
-        user.setPassword(passwordEncoder.encode(newPassword));
-        user.setPasswordChangedAt(LocalDateTime.now());
-        user.setMustChangePassword(false);
-
-        userRepository.save(user);
-        log.info("Password changed for user: {}", user.getUsername());
-    }
-
-    @Transactional
-    public String resetUserPassword(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
-        // Generate temporary password
-        String tempPassword = generateTemporaryPassword();
-
-        user.setPassword(passwordEncoder.encode(tempPassword));
-        user.setPasswordChangedAt(LocalDateTime.now());
-        user.setMustChangePassword(true);
-
-        userRepository.save(user);
-        log.info("Password reset for user: {}", user.getUsername());
-
+        userRepository.save( user );
         return tempPassword;
     }
 
-    @Transactional
-    public void toggleUserStatus(Long userId, boolean enable) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+    public void toggleUserStatus( Long userId, boolean enable )
+    {
+        User user = userRepository.findById( userId )
+                .orElseThrow( () -> new RuntimeException( "User not found" ) );
 
-        user.setEnabled(enable);
-        userRepository.save(user);
-
-        log.info("User {} status changed to: {}", user.getUsername(), enable ? "enabled" : "disabled");
-    }
-
-    @Transactional
-    public void updateLastLogin(Long userId) {
-        userRepository.findById(userId).ifPresent(user -> {
-            user.setLastLogin(LocalDateTime.now());
-            userRepository.save(user);
-        });
-    }
-
-    @Transactional
-    public int clearOldTransactionLogs(int daysOld) {
-        LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysOld);
-        List<TransactionLog> oldLogs = transactionLogRepository.findByDateRange(
-                LocalDateTime.MIN, cutoffDate);
-
-        transactionLogRepository.deleteAll(oldLogs);
-        log.info("Deleted {} transaction logs older than {} days", oldLogs.size(), daysOld);
-
-        return oldLogs.size();
-    }
-
-    private UserDTO convertToDTO(User user) {
-        UserDTO dto = new UserDTO();
-        dto.setId(user.getId());
-        dto.setUsername(user.getUsername());
-        dto.setEmail(user.getEmail());
-        dto.setFirstName(user.getFirstName());
-        dto.setLastName(user.getLastName());
-        dto.setEnabled(user.isEnabled());
-
-        dto.setRoles(user.getRoles().stream()
-                .map(Role::getName)
-                .collect(Collectors.toSet()));
-
-        if (user.getAccessGroup() != null) {
-            dto.setAccessGroup(user.getAccessGroup().getName());
+        user.setActive( enable );
+        if ( enable )
+        {
+            user.setLocked( false );
+            user.setFailedAttempts( 0 );
         }
-
-        return dto;
+        userRepository.save( user );
     }
 
-    private String generateTemporaryPassword() {
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%";
-        Random random = new Random();
-        StringBuilder password = new StringBuilder();
-
-        for (int i = 0; i < 12; i++) {
-            password.append(chars.charAt(random.nextInt(chars.length())));
-        }
-
-        return password.toString();
+    public void clearOldTransactionLogs( int daysOld )
+    {
+        log.info( "Clearing transaction logs older than {} days", daysOld );
     }
+
+    public List<User> getAllUsers()
+    {
+        return userRepository.findAll();
+    }
+
+    public User getUserById( Long id )
+    {
+        return userRepository.findById( id )
+                .orElseThrow( () -> new RuntimeException( "User not found" ) );
+    }
+
+    public long getUserCount()
+    {
+        return userRepository.count();
+    }
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger( UserService.class );
 }

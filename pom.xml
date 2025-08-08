@@ -37,10 +37,7 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-security</artifactId>
-        </dependency>
+        <!-- REMOVED: spring-boot-starter-security - Using manual authentication instead -->
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -58,6 +55,36 @@
             <scope>provided</scope>
         </dependency>
 
+        <!-- Spring Security Crypto ONLY (for password encoding) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+            <version>6.2.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>at.favre.lib</groupId>
+            <artifactId>bcrypt</artifactId>
+            <version>0.10.2</version>
+        </dependency>
+
+        <!-- Jakarta APIs (Explicitly added for clarity) -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+        </dependency>
+
         <!-- MariaDB -->
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>
@@ -72,11 +99,16 @@
             <version>0.1.55</version>
         </dependency>
 
-        <!-- Apache Commons for connection pooling -->
+        <!-- Apache Commons -->
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-pool2</artifactId>
             <version>2.12.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
         </dependency>
 
         <!-- JWT for authentication -->
@@ -129,6 +161,19 @@
             <version>3.10.8</version>
         </dependency>
 
+        <!-- Jackson for JSON processing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Spring Security Crypto ONLY (for password encoding) -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+            <version>6.2.0</version>
+        </dependency>
+
         <!-- Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -144,11 +189,7 @@
             <scope>test</scope>
         </dependency>
 
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-test</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- REMOVED: spring-security-test - Not needed for manual authentication -->
     </dependencies>
 
     <build>

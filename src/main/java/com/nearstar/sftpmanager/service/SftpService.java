@@ -1,328 +1,133 @@
 /**
+ * NearStar, Inc.
+ * 410 E. Main Street
+ * Lewisville, Texas  76057
+ * Tel: 1.972.221.4068
+ * <p>
  * Copyright © 2025 NearStar Incorporated. All rights reserved.
- *
- * This software and its source code are proprietary and confidential
- * to NearStar Incorporated. Unauthorized copying, modification,
- * distribution, or use of this software, in whole or in part,
+ * <p>
+ * <p>
+ * THIS IS UNPUBLISHED PROPRIETARY SOURCE CODE OF NEARSTAR Inc.
+ * <p>
+ * THIS COPYRIGHT NOTICE DOES NOT EVIDENCE ANY
+ * ACTUAL OR INTENDED PUBLICATION OF SUCH SOURCE CODE.
+ * This software and its source code are proprietary and confidential to NearStar Incorporated.
+ * Unauthorized copying, modification, distribution, or use of this software, in whole or in part,
  * is strictly prohibited without the prior written consent of the copyright holder.
- *
  * Portions of this software may utilize or be derived from open-source software
  * and publicly available frameworks licensed under their respective licenses.
- *
+ * <p>
  * This code may also include contributions developed with the assistance of AI-based tools.
- *
  * All open-source dependencies are used in accordance with their applicable licenses,
  * and full attribution is maintained in the corresponding documentation (e.g., NOTICE or LICENSE files).
+ * For inquiries regarding licensing or usage, please make request by going to nearstar.com.
  *
- * For inquiries regarding licensing or usage, please contact: bill.sanders@nearstar.com
- *
- * @file        UserService.java
- * @author      Bill Sanders <bill.sanders@nearstar.com>
- * @version     1.0.0
- * @date        2025-08-03
- * @brief       Brief description of the file's purpose
- *
- * @copyright   Copyright (c) 2025 NearStar Incorporated
- * @license     MIT License
- *
- * @modified    2025-08-06 - Bill Sanders - Initialized in Git
- *
- * @todo
- * @bug
- * @deprecated
+ * @file ${NAME}.java
+ * @author ${USER} <${USER}@nearstar.com>
+ * @version 1.0.0
+ * @date ${DATE}
+ * @project SFTP Site Management System
+ * @package com.nearstar.sftpmanager
+ * <p>
+ * Copyright    ${YEAR} Nearstar
+ * @license Proprietary
+ * @modified
  */
 package com.nearstar.sftpmanager.service;
 
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
 import com.nearstar.sftpmanager.model.entity.Site;
-import com.nearstar.sftpmanager.model.entity.TransactionLog;
-import com.nearstar.sftpmanager.repository.TransactionLogRepository;
 import com.nearstar.sftpmanager.util.EncryptionUtil;
-import com.nearstar.sftpmanager.util.FileChecksum;
-import com.jcraft.jsch.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import lombok.Data;
 import org.springframework.stereotype.Service;
-import java.io.*;
-import java.time.LocalDateTime;
+
+import java.util.Properties;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class SftpService {
+public class SftpService
+{
 
     private final EncryptionUtil encryptionUtil;
-    private final TransactionLogRepository transactionLogRepository;
-    private final AuditService auditService;
 
-    public TestConnectionResult testConnection(Site site) {
+    public TestConnectionResult testConnection( Site site )
+    {
         Session session = null;
-        ChannelSftp channelSftp = null;
-        TestConnectionResult result = new TestConnectionResult();
+        ChannelSftp channel = null;
 
-        try {
+        try
+        {
+            log.info( "Testing connection to site: {} ({}:{})",
+                    site.getSiteName(), site.getIpAddress(), site.getPort() );
+
             JSch jsch = new JSch();
+            session = jsch.getSession( site.getUsername(), site.getIpAddress(), site.getPort() );
 
-            // Handle SSH key if present
-            if (site.getSshKey() != null && !site.getSshKey().isEmpty()) {
-                jsch.addIdentity("site-" + site.getId(),
-                        site.getSshKey().getBytes(),
-                        null,
-                        encryptionUtil.decrypt(site.getEncryptedPassword()).getBytes());
-            }
+            String password = encryptionUtil.decrypt( site.getEncryptedPassword() );
+            session.setPassword( password );
 
-            session = jsch.getSession(site.getUsername(), site.getIpAddress(), site.getPort());
+            Properties config = new Properties();
+            config.put( "StrictHostKeyChecking", "no" );
+            config.put( "PreferredAuthentications", "password" );
+            session.setConfig( config );
+            session.setTimeout( 30000 );
 
-            // Set password if no SSH key
-            if (site.getSshKey() == null || site.getSshKey().isEmpty()) {
-                session.setPassword(encryptionUtil.decrypt(site.getEncryptedPassword()));
-            }
-
-            // Configure known hosts
-            if (site.getKnownHostsEntry() != null) {
-                session.setConfig("StrictHostKeyChecking", "yes");
-                // Add known host entry
-            } else {
-                session.setConfig("StrictHostKeyChecking", "no");
-            }
-
-            session.setConfig("PreferredAuthentications", "publickey,password");
-            session.setTimeout(30000);
             session.connect();
+            log.info( "✓ SSH connection established" );
 
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            channel = (ChannelSftp) session.openChannel( "sftp" );
+            channel.connect( 10000 );
+            log.info( "✓ SFTP channel opened" );
 
-            // Test access to target path
-            channelSftp.ls(site.getTargetPath());
+            String pwd = channel.pwd();
+            log.info( "✓ Current directory: {}", pwd );
 
-            result.setSuccess(true);
-            result.setMessage("Connection successful");
+            return new TestConnectionResult( true,
+                    "Connection successful. Current directory: " + pwd );
 
-            // Log successful test
-            logTransaction(site, "CONNECTION_TEST", true, "Connection test successful");
-
-        } catch (JSchException e) {
-            result.setSuccess(false);
-            result.setMessage("Connection failed: " + e.getMessage());
-            result.setErrorCode(determineErrorCode(e));
-
-            // Log failed test
-            logTransaction(site, "CONNECTION_TEST", false, e.getMessage());
-
-        } catch (SftpException e) {
-            result.setSuccess(false);
-            result.setMessage("SFTP error: " + e.getMessage());
-            result.setErrorCode("SFTP_ERROR");
-
-            logTransaction(site, "CONNECTION_TEST", false, e.getMessage());
-
-        } finally {
-            if (channelSftp != null && channelSftp.isConnected()) {
-                channelSftp.disconnect();
+        }
+        catch (Exception e)
+        {
+            log.error( "Connection test failed: {}", e.getMessage() );
+            return new TestConnectionResult( false,
+                    "Connection failed: " + e.getMessage() );
+        }
+        finally
+        {
+            if ( channel != null && channel.isConnected() )
+            {
+                channel.disconnect();
             }
-            if (session != null && session.isConnected()) {
+            if ( session != null && session.isConnected() )
+            {
                 session.disconnect();
             }
         }
-
-        return result;
     }
 
-    public FileTransferResult uploadFile(Site site, InputStream inputStream, String remotePath,
-                                         boolean verifyTransfer) throws Exception {
-        Session session = null;
-        ChannelSftp channelSftp = null;
-        FileTransferResult result = new FileTransferResult();
+    public static class TestConnectionResult
+    {
+        private final boolean success;
+        private final String message;
 
-        try {
-            // Create SFTP connection
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
-
-            // Calculate checksum of source file if verification requested
-            String sourceChecksum = null;
-            byte[] fileData = null;
-
-            if (verifyTransfer) {
-                fileData = inputStream.readAllBytes();
-                sourceChecksum = FileChecksum.calculateMD5(new ByteArrayInputStream(fileData));
-                inputStream = new ByteArrayInputStream(fileData);
-            }
-
-            // Upload file
-            channelSftp.put(inputStream, remotePath, ChannelSftp.OVERWRITE);
-
-            // Verify transfer if requested
-            if (verifyTransfer && sourceChecksum != null) {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                channelSftp.get(remotePath, baos);
-                String remoteChecksum = FileChecksum.calculateMD5(
-                        new ByteArrayInputStream(baos.toByteArray()));
-
-                if (!sourceChecksum.equals(remoteChecksum)) {
-                    throw new IOException("File verification failed - checksums don't match");
-                }
-
-                result.setVerified(true);
-                result.setChecksum(sourceChecksum);
-            }
-
-            // Get file info
-            SftpATTRS attrs = channelSftp.stat(remotePath);
-            result.setFileSize(attrs.getSize());
-            result.setSuccess(true);
-            result.setRemotePath(remotePath);
-
-            // Log transaction
-            logTransaction(site, "FILE_UPLOAD", true,
-                    "Uploaded file to " + remotePath + " (Size: " + attrs.getSize() + " bytes)");
-
-        } catch (Exception e) {
-            result.setSuccess(false);
-            result.setErrorMessage(e.getMessage());
-
-            logTransaction(site, "FILE_UPLOAD", false,
-                    "Failed to upload to " + remotePath + ": " + e.getMessage());
-
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        public TestConnectionResult( boolean success, String message )
+        {
+            this.success = success;
+            this.message = message;
         }
 
-        return result;
-    }
-
-    public FileTransferResult downloadFile(Site site, String remotePath, OutputStream outputStream,
-                                           boolean verifyTransfer) throws Exception {
-        Session session = null;
-        ChannelSftp channelSftp = null;
-        FileTransferResult result = new FileTransferResult();
-
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
-
-            // Get file attributes
-            SftpATTRS attrs = channelSftp.stat(remotePath);
-            result.setFileSize(attrs.getSize());
-
-            // Download file
-            if (verifyTransfer) {
-                // Download to memory first for verification
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                channelSftp.get(remotePath, baos);
-                byte[] fileData = baos.toByteArray();
-
-                // Calculate checksum
-                String checksum = FileChecksum.calculateMD5(new ByteArrayInputStream(fileData));
-                result.setChecksum(checksum);
-                result.setVerified(true);
-
-                // Write to output stream
-                outputStream.write(fileData);
-            } else {
-                channelSftp.get(remotePath, outputStream);
-            }
-
-            result.setSuccess(true);
-            result.setRemotePath(remotePath);
-
-            // Log transaction
-            logTransaction(site, "FILE_DOWNLOAD", true,
-                    "Downloaded file from " + remotePath + " (Size: " + attrs.getSize() + " bytes)");
-
-        } catch (Exception e) {
-            result.setSuccess(false);
-            result.setErrorMessage(e.getMessage());
-
-            logTransaction(site, "FILE_DOWNLOAD", false,
-                    "Failed to download from " + remotePath + ": " + e.getMessage());
-
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        public boolean isSuccess()
+        {
+            return success;
         }
 
-        return result;
-    }
-
-    private Session createSession(Site site) throws JSchException {
-        JSch jsch = new JSch();
-
-        if (site.getSshKey() != null && !site.getSshKey().isEmpty()) {
-            jsch.addIdentity("site-" + site.getId(),
-                    site.getSshKey().getBytes(),
-                    null,
-                    encryptionUtil.decrypt(site.getEncryptedPassword()).getBytes());
+        public String getMessage()
+        {
+            return message;
         }
-
-        Session session = jsch.getSession(site.getUsername(), site.getIpAddress(), site.getPort());
-
-        if (site.getSshKey() == null || site.getSshKey().isEmpty()) {
-            session.setPassword(encryptionUtil.decrypt(site.getEncryptedPassword()));
-        }
-
-        session.setConfig("StrictHostKeyChecking",
-                site.getKnownHostsEntry() != null ? "yes" : "no");
-        session.setTimeout(30000);
-        session.connect();
-
-        return session;
-    }
-
-    private void disconnect(ChannelSftp channelSftp, Session session) {
-        if (channelSftp != null && channelSftp.isConnected()) {
-            channelSftp.disconnect();
-        }
-        if (session != null && session.isConnected()) {
-            session.disconnect();
-        }
-    }
-
-    private void logTransaction(Site site, String action, boolean success, String details) {
-        TransactionLog log = new TransactionLog();
-        log.setSite(site);
-        log.setAction(action);
-        log.setSuccess(success);
-        log.setDetails(details);
-        log.setTimestamp( LocalDateTime.now());
-        transactionLogRepository.save(log);
-    }
-
-    private String determineErrorCode(JSchException e) {
-        String message = e.getMessage().toLowerCase();
-        if (message.contains("auth fail") || message.contains("auth cancel")) {
-            return "AUTH_FAILED";
-        } else if (message.contains("timeout")) {
-            return "TIMEOUT";
-        } else if (message.contains("unknownhost")) {
-            return "UNKNOWN_HOST";
-        } else if (message.contains("connection refused")) {
-            return "CONNECTION_REFUSED";
-        }
-        return "UNKNOWN_ERROR";
-    }
-
-    @Data
-    public static class TestConnectionResult {
-        private boolean success;
-        private String message;
-        private String errorCode;
-        private long responseTime;
-    }
-
-    @Data
-    public static class FileTransferResult {
-        private boolean success;
-        private String remotePath;
-        private long fileSize;
-        private String checksum;
-        private boolean verified;
-        private String errorMessage;
     }
 }

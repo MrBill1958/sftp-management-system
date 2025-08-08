@@ -1,184 +1,62 @@
+/**
+ * NearStar, Inc.
+ * 410 E. Main Street
+ * Lewisville, Texas  76057
+ * Tel: 1.972.221.4068
+ * <p>
+ * Copyright � 2025 NearStar Incorporated. All rights reserved.
+ * <p>
+ * <p>
+ * THIS IS UNPUBLISHED PROPRIETARY SOURCE CODE OF NEARSTAR Inc.
+ * <p>
+ * THIS COPYRIGHT NOTICE DOES NOT EVIDENCE ANY
+ * ACTUAL OR INTENDED PUBLICATION OF SUCH SOURCE CODE.
+ * This software and its source code are proprietary and confidential to NearStar Incorporated.
+ * Unauthorized copying, modification, distribution, or use of this software, in whole or in part,
+ * is strictly prohibited without the prior written consent of the copyright holder.
+ * Portions of this software may utilize or be derived from open-source software
+ * and publicly available frameworks licensed under their respective licenses.
+ * <p>
+ * This code may also include contributions developed with the assistance of AI-based tools.
+ * All open-source dependencies are used in accordance with their applicable licenses,
+ * and full attribution is maintained in the corresponding documentation (e.g., NOTICE or LICENSE files).
+ * For inquiries regarding licensing or usage, please make request by going to nearstar.com.
+ *
+ * @file ${NAME}.java
+ * @author ${USER} <${USER}@nearstar.com>
+ * @version 1.0.0
+ * @date ${DATE}
+ * @project SFTP Site Management System
+ * @package com.nearstar.sftpmanager
+ * <p>
+ * Copyright    ${YEAR} Nearstar
+ * @license Proprietary
+ * @modified
+ */
 package com.nearstar.sftpmanager.config;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
-import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
-import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
-import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 import javax.sql.DataSource;
-import java.util.Properties;
 
 @Configuration
 @EnableTransactionManagement
-@EnableJpaRepositories(basePackages = "com.nearstar.sftpmanager.repository")
-@EnableJpaAuditing
-public class DatabaseConfig {
-
-    @Value("${spring.datasource.url}")
-    private String dbUrl;
-
-    @Value("${spring.datasource.username}")
-    private String dbUsername;
-
-    @Value("${spring.datasource.password}")
-    private String dbPassword;
-
-    @Value("${spring.datasource.driver-class-name}")
-    private String dbDriverClassName;
-
-    @Value("${spring.jpa.properties.hibernate.dialect}")
-    private String hibernateDialect;
-
-    @Value("${spring.jpa.hibernate.ddl-auto}")
-    private String hibernateDdlAuto;
-
-    @Value("${spring.jpa.show-sql:false}")
-    private boolean showSql;
-
-    @Value("${spring.jpa.properties.hibernate.format_sql:true}")
-    private boolean formatSql;
+public class DatabaseConfig
+{
 
     @Bean
-    @Primary
-    @ConfigurationProperties(prefix = "spring.datasource.hikari")
-    public DataSource dataSource() {
-        HikariConfig hikariConfig = new HikariConfig();
-
-        // Basic configuration
-        hikariConfig.setJdbcUrl(dbUrl);
-        hikariConfig.setUsername(dbUsername);
-        hikariConfig.setPassword(dbPassword);
-        hikariConfig.setDriverClassName(dbDriverClassName);
-
-        // Connection pool configuration
-        hikariConfig.setMaximumPoolSize(20);
-        hikariConfig.setMinimumIdle(5);
-        hikariConfig.setIdleTimeout(300000); // 5 minutes
-        hikariConfig.setConnectionTimeout(30000); // 30 seconds
-        hikariConfig.setMaxLifetime(1800000); // 30 minutes
-        hikariConfig.setLeakDetectionThreshold(60000); // 1 minute
-
-        // Performance optimizations
-        hikariConfig.setAutoCommit(false);
-        hikariConfig.addDataSourceProperty("cachePrepStmts", "true");
-        hikariConfig.addDataSourceProperty("prepStmtCacheSize", "250");
-        hikariConfig.addDataSourceProperty("prepStmtCacheSqlLimit", "2048");
-        hikariConfig.addDataSourceProperty("useServerPrepStmts", "true");
-        hikariConfig.addDataSourceProperty("useLocalSessionState", "true");
-        hikariConfig.addDataSourceProperty("rewriteBatchedStatements", "true");
-        hikariConfig.addDataSourceProperty("cacheResultSetMetadata", "true");
-        hikariConfig.addDataSourceProperty("cacheServerConfiguration", "true");
-        hikariConfig.addDataSourceProperty("elideSetAutoCommits", "true");
-        hikariConfig.addDataSourceProperty("maintainTimeStats", "false");
-
-        // Connection validation
-        hikariConfig.setConnectionTestQuery("SELECT 1");
-        hikariConfig.setValidationTimeout(5000);
-
-        // Pool name
-        hikariConfig.setPoolName("SFTPManagerPool");
-
-        return new HikariDataSource(hikariConfig);
-    }
-
-    @Bean
-    public LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource dataSource) {
-        LocalContainerEntityManagerFactoryBean em = new LocalContainerEntityManagerFactoryBean();
-        em.setDataSource(dataSource);
-        em.setPackagesToScan("com.nearstar.sftpmanager.model.entity");
-
-        HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
-        vendorAdapter.setShowSql(showSql);
-        vendorAdapter.setGenerateDdl(true);
-        em.setJpaVendorAdapter(vendorAdapter);
-
-        Properties jpaProperties = new Properties();
-        jpaProperties.put("hibernate.dialect", hibernateDialect);
-        jpaProperties.put("hibernate.hbm2ddl.auto", hibernateDdlAuto);
-        jpaProperties.put("hibernate.show_sql", showSql);
-        jpaProperties.put("hibernate.format_sql", formatSql);
-
-        // Second level cache configuration
-        jpaProperties.put("hibernate.cache.use_second_level_cache", "true");
-        jpaProperties.put("hibernate.cache.use_query_cache", "true");
-        jpaProperties.put("hibernate.cache.region.factory_class",
-                "org.hibernate.cache.jcache.internal.JCacheRegionFactory");
-
-        // Batch processing
-        jpaProperties.put("hibernate.jdbc.batch_size", "25");
-        jpaProperties.put("hibernate.order_inserts", "true");
-        jpaProperties.put("hibernate.order_updates", "true");
-        jpaProperties.put("hibernate.jdbc.batch_versioned_data", "true");
-
-        // Statistics (disable in production)
-        jpaProperties.put("hibernate.generate_statistics", "false");
-
-        // Connection handling
-        jpaProperties.put("hibernate.connection.handling_mode", "DELAYED_ACQUISITION_AND_RELEASE_AFTER_TRANSACTION");
-
-        em.setJpaProperties(jpaProperties);
-
-        return em;
-    }
-
-    @Bean
-    public PlatformTransactionManager transactionManager(LocalContainerEntityManagerFactoryBean entityManagerFactory) {
-        JpaTransactionManager transactionManager = new JpaTransactionManager();
-        transactionManager.setEntityManagerFactory(entityManagerFactory.getObject());
-        return transactionManager;
-    }
-
-    /**
-     * Database health check bean
-     */
-    @Bean
-    public DatabaseHealthIndicator databaseHealthIndicator(DataSource dataSource) {
-        return new DatabaseHealthIndicator(dataSource);
-    }
-
-    /**
-     * Custom database health indicator
-     */
-    public static class DatabaseHealthIndicator {
-        private final DataSource dataSource;
-
-        public DatabaseHealthIndicator(DataSource dataSource) {
-            this.dataSource = dataSource;
-        }
-
-        public boolean isHealthy() {
-            try (var connection = dataSource.getConnection()) {
-                return connection.isValid(5);
-            } catch (Exception e) {
-                return false;
-            }
-        }
-    }
-
-    /**
-     * Database initializer for first-time setup
-     */
-    @Bean
-    @ConditionalOnProperty(name = "app.database.initialize", havingValue = "true")
-    public DatabaseInitializer databaseInitializer() {
-        return new DatabaseInitializer();
-    }
-
-    public static class DatabaseInitializer {
-        public void initialize() {
-            // This would be called on first startup to ensure schema is created
-            // The actual initialization is handled by schema.sql and data.sql
-        }
+    public LocalContainerEntityManagerFactoryBean entityManagerFactory(
+            EntityManagerFactoryBuilder builder,
+            DataSource dataSource )
+    {
+        return builder
+                .dataSource( dataSource )
+                .packages( "com.nearstar.sftpmanager.model", "com.nearstar.sftpmanager.model.entity" ) // Scan both packages
+                .persistenceUnit( "default" )
+                .build();
     }
 }

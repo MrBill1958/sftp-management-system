@@ -1,599 +1,757 @@
 /**
+ * NearStar, Inc.
+ * 410 E. Main Street
+ * Lewisville, Texas  76057
+ * Tel: 1.972.221.4068
+ * <p>
  * Copyright © 2025 NearStar Incorporated. All rights reserved.
- *
- * This software and its source code are proprietary and confidential
- * to NearStar Incorporated. Unauthorized copying, modification,
- * distribution, or use of this software, in whole or in part,
+ * <p>
+ * <p>
+ * THIS IS UNPUBLISHED PROPRIETARY SOURCE CODE OF NEARSTAR Inc.
+ * <p>
+ * THIS COPYRIGHT NOTICE DOES NOT EVIDENCE ANY
+ * ACTUAL OR INTENDED PUBLICATION OF SUCH SOURCE CODE.
+ * This software and its source code are proprietary and confidential to NearStar Incorporated.
+ * Unauthorized copying, modification, distribution, or use of this software, in whole or in part,
  * is strictly prohibited without the prior written consent of the copyright holder.
- *
  * Portions of this software may utilize or be derived from open-source software
  * and publicly available frameworks licensed under their respective licenses.
- *
+ * <p>
  * This code may also include contributions developed with the assistance of AI-based tools.
- *
  * All open-source dependencies are used in accordance with their applicable licenses,
  * and full attribution is maintained in the corresponding documentation (e.g., NOTICE or LICENSE files).
+ * For inquiries regarding licensing or usage, please make request by going to nearstar.com.
  *
- * For inquiries regarding licensing or usage, please contact: bill.sanders@nearstar.com
- *
- * @file        UserService.java
- * @author      Bill Sanders <bill.sanders@nearstar.com>
- * @version     1.0.0
- * @date        2025-08-03
- * @brief       Brief description of the file's purpose
- *
- * @copyright   Copyright (c) 2025 NearStar Incorporated
- * @license     MIT License
- *
- * @modified    2025-08-06 - Bill Sanders - Initialized in Git
- *
- * @todo
- * @bug
- * @deprecated
+ * @file ${NAME}.java
+ * @author ${USER} <${USER}@nearstar.com>
+ * @version 1.0.0
+ * @date ${DATE}
+ * @project SFTP Site Management System
+ * @package com.nearstar.sftpmanager
+ * <p>
+ * Copyright    ${YEAR} Nearstar
+ * @license Proprietary
+ * @modified
  */
 package com.nearstar.sftpmanager.service;
 
-import com.nearstar.sftpmanager.model.entity.Site;
-import com.nearstar.sftpmanager.model.entity.TransactionLog;
-import com.nearstar.sftpmanager.model.enums.ActionType;
-import com.nearstar.sftpmanager.repository.SiteRepository;
-import com.nearstar.sftpmanager.repository.TransactionLogRepository;
-import com.nearstar.sftpmanager.util.EncryptionUtil;
-import com.nearstar.sftpmanager.util.FileChecksum;
 import com.jcraft.jsch.*;
+import com.nearstar.sftpmanager.model.dto.FileDTO;
+import com.nearstar.sftpmanager.model.entity.Site;
+import com.nearstar.sftpmanager.repository.SiteRepository;
+import com.nearstar.sftpmanager.util.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class FileManagerService {
+public class FileManagerService
+{
 
     private final SiteRepository siteRepository;
-    private final TransactionLogRepository transactionLogRepository;
     private final EncryptionUtil encryptionUtil;
-    private final AuditService auditService;
+    private final Map<String, Session> sessionCache = new HashMap<>();
 
-    public Map<String, Object> listFiles(Long siteId, String path, boolean detailed) {
-        Site site = getSiteById(siteId);
-        Session session = null;
+    /**
+     * List files in a directory
+     */
+    public List<FileDTO> listFiles( Long siteId, String path ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
         ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            // Normalize path
+            if ( path == null || path.isEmpty() )
+            {
+                path = "/";
+            }
 
-            List<Map<String, Object>> files = new ArrayList<>();
-            List<Map<String, Object>> directories = new ArrayList<>();
+            log.info( "Listing files for site {} at path: {}", site.getSiteName(), path );
 
-            @SuppressWarnings("unchecked")
-            Vector<ChannelSftp.LsEntry> entries = channelSftp.ls(path);
+            Vector<ChannelSftp.LsEntry> fileList = channelSftp.ls( path );
+            List<FileDTO> files = new ArrayList<>();
 
-            for (ChannelSftp.LsEntry entry : entries) {
-                String filename = entry.getFilename();
-                if (filename.equals(".") || filename.equals("..")) {
+            for (ChannelSftp.LsEntry entry : fileList)
+            {
+                // Skip . and .. directories
+                if ( ".".equals( entry.getFilename() ) || "..".equals( entry.getFilename() ) )
+                {
                     continue;
                 }
 
+                FileDTO fileDTO = new FileDTO();
+                fileDTO.setName( entry.getFilename() );
+                fileDTO.setPath( path.endsWith( "/" ) ? path + entry.getFilename() : path + "/" + entry.getFilename() );
+
                 SftpATTRS attrs = entry.getAttrs();
-                Map<String, Object> fileInfo = new HashMap<>();
-                fileInfo.put("name", filename);
+                fileDTO.setDirectory( attrs.isDir() );
+                fileDTO.setSize( attrs.getSize() );
+                fileDTO.setPermissions( attrs.getPermissionsString() );
 
-                if (detailed) {
-                    fileInfo.put("size", attrs.getSize());
-                    fileInfo.put("permissions", attrs.getPermissionsString());
-                    fileInfo.put("modifiedTime", new Date(attrs.getMTime() * 1000L));
-                    fileInfo.put("owner", attrs.getUId());
-                    fileInfo.put("group", attrs.getGId());
-                }
+                // Convert modification time
+                long mtime = attrs.getMTime() * 1000L; // Convert to milliseconds
+                fileDTO.setModified( LocalDateTime.ofInstant( Instant.ofEpochMilli( mtime ), ZoneId.systemDefault() ) );
 
-                if (attrs.isDir()) {
-                    directories.add(fileInfo);
-                } else {
-                    files.add(fileInfo);
-                }
+                files.add( fileDTO );
             }
 
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("files", files);
-            result.put("directories", directories);
-            result.put("path", path);
+            // Sort: directories first, then by name
+            files.sort( ( a, b ) ->
+            {
+                if ( a.isDirectory() && !b.isDirectory() )
+                {
+                    return -1;
+                }
+                if ( !a.isDirectory() && b.isDirectory() )
+                {
+                    return 1;
+                }
+                return a.getName().compareToIgnoreCase( b.getName() );
+            } );
 
-            logTransaction(site, "LIST_FILES", path, null, true, "Listed " + (files.size() + directories.size()) + " items");
+            log.info( "Found {} files/directories", files.size() );
+            return files;
 
-            return result;
-
-        } catch (Exception e) {
-            log.error("Error listing files: {}", e.getMessage());
-            logTransaction(site, "LIST_FILES", path, null, false, e.getMessage());
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", false);
-            result.put("error", e.getMessage());
-            return result;
-
-        } finally {
-            disconnect(channelSftp, session);
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+                if ( channelSftp.getSession() != null )
+                {
+                    channelSftp.getSession().disconnect();
+                }
+            }
         }
     }
 
-    public Map<String, Object> uploadFile(Long siteId, MultipartFile file, String remotePath,
-                                          boolean verifyTransfer, boolean overwrite) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
+    /**
+     * Download a file
+     */
+    public byte[] downloadFile( Long siteId, String filePath ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
         ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
+            log.info( "Downloading file from site {}: {}", site.getSiteName(), filePath );
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            channelSftp.get( filePath, outputStream );
 
-            // Check if file exists and overwrite is false
-            if (!overwrite) {
-                try {
-                    channelSftp.stat(remotePath);
-                    throw new IllegalArgumentException("File already exists and overwrite is disabled");
-                } catch (SftpException e) {
-                    // File doesn't exist, proceed
-                }
+            byte[] data = outputStream.toByteArray();
+            log.info( "Downloaded {} bytes", data.length );
+            return data;
+
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
             }
-
-            // Upload file
-            String checksum = null;
-            long startTime = System.currentTimeMillis();
-
-            try (InputStream inputStream = file.getInputStream()) {
-                if (verifyTransfer) {
-                    // Calculate checksum before upload
-                    byte[] fileData = file.getBytes();
-                    checksum = FileChecksum.calculateMD5(new ByteArrayInputStream(fileData));
-                    channelSftp.put(new ByteArrayInputStream(fileData), remotePath, ChannelSftp.OVERWRITE);
-                } else {
-                    channelSftp.put(inputStream, remotePath, ChannelSftp.OVERWRITE);
-                }
-            }
-
-            long uploadTime = System.currentTimeMillis() - startTime;
-
-            // Get uploaded file info
-            SftpATTRS attrs = channelSftp.stat(remotePath);
-
-            // Verify if requested
-            boolean verified = false;
-            if (verifyTransfer && checksum != null) {
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                channelSftp.get(remotePath, baos);
-                String remoteChecksum = FileChecksum.calculateMD5(new ByteArrayInputStream(baos.toByteArray()));
-                verified = checksum.equals(remoteChecksum);
-
-                if (!verified) {
-                    // Delete the corrupted file
-                    channelSftp.rm(remotePath);
-                    throw new IOException("File verification failed - checksums don't match");
-                }
-            }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("success", true);
-            result.put("filename", file.getOriginalFilename());
-            result.put("remotePath", remotePath);
-            result.put("size", attrs.getSize());
-            result.put("uploadTime", uploadTime);
-            result.put("verified", verified);
-            if (checksum != null) {
-                result.put("checksum", checksum);
-            }
-
-            logTransaction(site, "UPLOAD_FILE", remotePath, checksum, true,
-                    "Uploaded " + file.getOriginalFilename() + " (" + attrs.getSize() + " bytes)");
-
-            auditService.logAction(ActionType.UPLOAD_FILE, "Site", siteId, null, remotePath,
-                    "Uploaded file: " + file.getOriginalFilename());
-
-            return result;
-
-        } catch (Exception e) {
-            log.error("Error uploading file: {}", e.getMessage());
-            logTransaction(site, "UPLOAD_FILE", remotePath, null, false, e.getMessage());
-
-            auditService.logFailedAction(ActionType.UPLOAD_FILE, "Site", siteId,
-                    "Failed to upload file: " + file.getOriginalFilename(), e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
         }
     }
 
-    public Resource downloadFile(Long siteId, String remotePath) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
+    /**
+     * Upload a file with enhanced logging and verification
+     */
+    public void uploadFile( Long siteId, String targetPath, MultipartFile file ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
         ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            log.info( "=== Starting Upload Process ===" );
+            log.info( "Site: {}", site.getSiteName() );
+            log.info( "Target Path: {}", targetPath );
+            log.info( "File Name: {}", file.getOriginalFilename() );
+            log.info( "File Size: {} bytes", file.getSize() );
 
-            // Get file info
-            SftpATTRS attrs = channelSftp.stat(remotePath);
-            if (attrs.isDir()) {
-                throw new IllegalArgumentException("Cannot download directory");
+            // Ensure the target path exists and is a directory
+            try
+            {
+                SftpATTRS attrs = channelSftp.stat( targetPath );
+                if ( !attrs.isDir() )
+                {
+                    throw new RuntimeException( "Target path is not a directory: " + targetPath );
+                }
+                log.info( "✓ Target directory exists and is valid" );
+            }
+            catch (SftpException e)
+            {
+                if ( e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE )
+                {
+                    log.error( "✗ Target directory does not exist: {}", targetPath );
+                    throw new RuntimeException( "Target directory does not exist: " + targetPath );
+                }
+                throw e;
             }
 
-            // Download file
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            channelSftp.get(remotePath, baos);
+            String fullPath = targetPath.endsWith( "/" )
+                    ? targetPath + file.getOriginalFilename()
+                    : targetPath + "/" + file.getOriginalFilename();
 
-            byte[] fileData = baos.toByteArray();
-            String checksum = FileChecksum.calculateMD5(new ByteArrayInputStream(fileData));
+            log.info( "Full upload path: {}", fullPath );
 
-            logTransaction(site, "DOWNLOAD_FILE", remotePath, checksum, true,
-                    "Downloaded file (" + fileData.length + " bytes)");
+            // Upload with progress monitoring
+            try ( InputStream inputStream = file.getInputStream() )
+            {
+                channelSftp.put( inputStream, fullPath, new SftpProgressMonitor()
+                {
+                    private long transferred = 0;
+                    private long lastLog = 0;
 
-            auditService.logAction(ActionType.DOWNLOAD_FILE, "Site", siteId, null, remotePath,
-                    "Downloaded file: " + remotePath);
+                    @Override
+                    public void init( int op, String src, String dest, long max )
+                    {
+                        log.info( "Initiating transfer to: {} (size: {} bytes)", dest, max );
+                    }
 
-            return new ByteArrayResource(fileData);
-
-        } catch (Exception e) {
-            log.error("Error downloading file: {}", e.getMessage());
-            logTransaction(site, "DOWNLOAD_FILE", remotePath, null, false, e.getMessage());
-
-            auditService.logFailedAction(ActionType.DOWNLOAD_FILE, "Site", siteId,
-                    "Failed to download file: " + remotePath, e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
-        }
-    }
-
-    public Resource downloadMultipleAsZip(Long siteId, List<String> paths) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
-        ChannelSftp channelSftp = null;
-
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try (ZipOutputStream zos = new ZipOutputStream(baos)) {
-
-                for (String path : paths) {
-                    try {
-                        // Check if it's a file
-                        SftpATTRS attrs = channelSftp.stat(path);
-                        if (!attrs.isDir()) {
-                            // Download and add to zip
-                            ByteArrayOutputStream fileStream = new ByteArrayOutputStream();
-                            channelSftp.get(path, fileStream);
-
-                            String filename = path.substring(path.lastIndexOf('/') + 1);
-                            ZipEntry entry = new ZipEntry(filename);
-                            entry.setSize(attrs.getSize());
-                            entry.setTime(attrs.getMTime() * 1000L);
-
-                            zos.putNextEntry(entry);
-                            zos.write(fileStream.toByteArray());
-                            zos.closeEntry();
+                    @Override
+                    public boolean count( long count )
+                    {
+                        transferred += count;
+                        // Log progress every 10MB
+                        if ( transferred - lastLog >= 10 * 1024 * 1024 )
+                        {
+                            log.info( "Progress: {} bytes transferred", transferred );
+                            lastLog = transferred;
                         }
-                    } catch (Exception e) {
-                        log.error("Error adding file to zip: {} - {}", path, e.getMessage());
+                        return true;
+                    }
+
+                    @Override
+                    public void end()
+                    {
+                        log.info( "✓ Transfer completed. Total transferred: {} bytes", transferred );
+                    }
+                }, ChannelSftp.OVERWRITE );
+            }
+
+            // Verify the file was uploaded
+            log.info( "Verifying uploaded file..." );
+            try
+            {
+                SftpATTRS uploadedAttrs = channelSftp.stat( fullPath );
+                log.info( "✓ File verified on server:" );
+                log.info( "  - Path: {}", fullPath );
+                log.info( "  - Size on server: {} bytes", uploadedAttrs.getSize() );
+                log.info( "  - Original size: {} bytes", file.getSize() );
+
+                // Compare sizes
+                if ( uploadedAttrs.getSize() != file.getSize() )
+                {
+                    log.warn( "⚠ WARNING: Size mismatch detected!" );
+                    log.warn( "  Expected: {} bytes, Actual: {} bytes",
+                            file.getSize(), uploadedAttrs.getSize() );
+                }
+                else
+                {
+                    log.info( "✓ File size matches - upload successful!" );
+                }
+
+                // List directory to double-check
+                log.info( "Listing directory contents after upload:" );
+                Vector<ChannelSftp.LsEntry> files = channelSftp.ls( targetPath );
+                boolean found = false;
+                for (ChannelSftp.LsEntry entry : files)
+                {
+                    if ( entry.getFilename().equals( file.getOriginalFilename() ) )
+                    {
+                        found = true;
+                        log.info( "✓ File found in directory listing: {} ({} bytes)",
+                                entry.getFilename(), entry.getAttrs().getSize() );
+                        break;
                     }
                 }
-            }
 
-            byte[] zipData = baos.toByteArray();
-
-            logTransaction(site, "DOWNLOAD_MULTIPLE", String.join(", ", paths), null, true,
-                    "Downloaded " + paths.size() + " files as zip");
-
-            return new ByteArrayResource(zipData);
-
-        } catch (Exception e) {
-            log.error("Error creating zip download: {}", e.getMessage());
-            logTransaction(site, "DOWNLOAD_MULTIPLE", String.join(", ", paths), null, false, e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
-        }
-    }
-
-    public boolean deleteFile(Long siteId, String remotePath, boolean recursive) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
-        ChannelSftp channelSftp = null;
-
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
-
-            // Check if it's a directory
-            SftpATTRS attrs = channelSftp.stat(remotePath);
-
-            if (attrs.isDir()) {
-                if (recursive) {
-                    deleteDirectoryRecursive(channelSftp, remotePath);
-                } else {
-                    channelSftp.rmdir(remotePath);
+                if ( !found )
+                {
+                    log.error( "✗ File NOT found in directory listing!" );
+                    throw new RuntimeException( "File not found in directory after upload" );
                 }
-            } else {
-                channelSftp.rm(remotePath);
+            }
+            catch (SftpException e)
+            {
+                log.error( "✗ Failed to verify uploaded file: {}", e.getMessage() );
+                throw new RuntimeException( "File verification failed after upload", e );
             }
 
-            logTransaction(site, "DELETE_FILE", remotePath, null, true,
-                    "Deleted " + (attrs.isDir() ? "directory" : "file"));
+            log.info( "=== Upload Process Completed Successfully ===" );
 
-            auditService.logAction(ActionType.DELETE_FILE, "Site", siteId, null, remotePath,
-                    "Deleted: " + remotePath);
-
-            return true;
-
-        } catch (Exception e) {
-            log.error("Error deleting file: {}", e.getMessage());
-            logTransaction(site, "DELETE_FILE", remotePath, null, false, e.getMessage());
-
-            auditService.logFailedAction(ActionType.DELETE_FILE, "Site", siteId,
-                    "Failed to delete: " + remotePath, e.getMessage());
+        }
+        catch (Exception e)
+        {
+            log.error( "=== Upload Failed ===" );
+            log.error( "Error uploading file: {} to path: {}",
+                    file.getOriginalFilename(), targetPath, e );
             throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
         }
     }
 
-    public boolean createDirectory(Long siteId, String remotePath, boolean recursive) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
+    /**
+     * Upload file with progress tracking callback
+     */
+    public void uploadFileWithProgress( Long siteId, String targetPath, InputStream inputStream,
+                                        String fileName, long fileSize, ProgressCallback progressCallback ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
         ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            String fullPath = targetPath.endsWith( "/" )
+                    ? targetPath + fileName
+                    : targetPath + "/" + fileName;
 
-            if (recursive) {
-                createDirectoryRecursive(channelSftp, remotePath);
-            } else {
-                channelSftp.mkdir(remotePath);
+            log.info( "Starting tracked upload to site {}: {}", site.getSiteName(), fullPath );
+
+            // Upload with custom progress monitor that calls our callback
+            channelSftp.put( inputStream, fullPath, new SftpProgressMonitor()
+            {
+                private long transferred = 0;
+                private long lastCallback = 0;
+                private final long callbackInterval = 1024 * 1024; // Call callback every 1MB
+
+                @Override
+                public void init( int op, String src, String dest, long max )
+                {
+                    log.info( "Initiating tracked transfer to: {} (size: {} bytes)", dest, max );
+                    if ( progressCallback != null )
+                    {
+                        progressCallback.onProgress( 0, fileSize );
+                    }
+                }
+
+                @Override
+                public boolean count( long count )
+                {
+                    transferred += count;
+
+                    // Call callback at intervals to avoid too many updates
+                    if ( transferred - lastCallback >= callbackInterval || transferred >= fileSize )
+                    {
+                        if ( progressCallback != null )
+                        {
+                            progressCallback.onProgress( transferred, fileSize );
+                        }
+                        lastCallback = transferred;
+
+                        if ( transferred % (10 * 1024 * 1024) < count )
+                        {
+                            log.info( "Progress: {} / {} bytes ({:.1f}%)",
+                                    transferred, fileSize,
+                                    (double) transferred / fileSize * 100 );
+                        }
+                    }
+                    return true; // Continue transfer
+                }
+
+                @Override
+                public void end()
+                {
+                    log.info( "✓ Transfer completed. Total transferred: {} bytes", transferred );
+                    if ( progressCallback != null )
+                    {
+                        progressCallback.onProgress( fileSize, fileSize ); // Ensure 100% is sent
+                    }
+                }
+            }, ChannelSftp.OVERWRITE );
+
+            // Verify upload
+            SftpATTRS uploadedAttrs = channelSftp.stat( fullPath );
+            log.info( "✓ File verified on server: {} (size: {} bytes)",
+                    fullPath, uploadedAttrs.getSize() );
+
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Upload file using stream (simple version for backward compatibility)
+     */
+    public void uploadFileStream( Long siteId, String path, InputStream inputStream, String fileName ) throws Exception
+    {
+        // Delegate to the progress version without a callback
+        uploadFileWithProgress( siteId, path, inputStream, fileName, -1, null );
+    }
+
+    /**
+     * Create a directory
+     */
+    public void createDirectory( Long siteId, String path, String directoryName ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
+        ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
+
+            String fullPath = path.endsWith( "/" )
+                    ? path + directoryName
+                    : path + "/" + directoryName;
+
+            log.info( "Creating directory on site {}: {}", site.getSiteName(), fullPath );
+            channelSftp.mkdir( fullPath );
+            log.info( "Directory created successfully: {}", fullPath );
+
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Delete a file or directory
+     */
+    public void deleteFile( Long siteId, String filePath, boolean isDirectory ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
+        ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
+
+            log.info( "Deleting {} on site {}: {}",
+                    isDirectory ? "directory" : "file", site.getSiteName(), filePath );
+
+            if ( isDirectory )
+            {
+                // For directories, we need to delete contents first
+                deleteDirectoryRecursive( channelSftp, filePath );
+            }
+            else
+            {
+                channelSftp.rm( filePath );
             }
 
-            logTransaction(site, "CREATE_DIRECTORY", remotePath, null, true,
-                    "Created directory");
+            log.info( "Deleted successfully: {}", filePath );
 
-            auditService.logAction(ActionType.CREATE_FOLDER, "Site", siteId, null, remotePath,
-                    "Created directory: " + remotePath);
-
-            return true;
-
-        } catch (Exception e) {
-            log.error("Error creating directory: {}", e.getMessage());
-            logTransaction(site, "CREATE_DIRECTORY", remotePath, null, false, e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
         }
     }
 
-    public boolean renameFile(Long siteId, String oldPath, String newPath) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
+    /**
+     * Rename a file or directory
+     */
+    public void renameFile( Long siteId, String oldPath, String newPath ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
         ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            log.info( "Renaming on site {}: {} -> {}", site.getSiteName(), oldPath, newPath );
+            channelSftp.rename( oldPath, newPath );
+            log.info( "Renamed successfully: {} -> {}", oldPath, newPath );
 
-            channelSftp.rename(oldPath, newPath);
-
-            logTransaction(site, "RENAME_FILE", oldPath + " -> " + newPath, null, true,
-                    "Renamed file/directory");
-
-            return true;
-
-        } catch (Exception e) {
-            log.error("Error renaming file: {}", e.getMessage());
-            logTransaction(site, "RENAME_FILE", oldPath + " -> " + newPath, null, false, e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
         }
     }
 
-    public Map<String, Object> getFileInfo(Long siteId, String remotePath) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
+    /**
+     * Get file information
+     */
+    public FileDTO getFileInfo( Long siteId, String filePath ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
         ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+            SftpATTRS attrs = channelSftp.stat( filePath );
 
-            SftpATTRS attrs = channelSftp.stat(remotePath);
+            FileDTO fileDTO = new FileDTO();
+            fileDTO.setPath( filePath );
+            fileDTO.setName( filePath.substring( filePath.lastIndexOf( '/' ) + 1 ) );
+            fileDTO.setDirectory( attrs.isDir() );
+            fileDTO.setSize( attrs.getSize() );
+            fileDTO.setPermissions( attrs.getPermissionsString() );
+
+            long mtime = attrs.getMTime() * 1000L;
+            fileDTO.setModified( LocalDateTime.ofInstant( Instant.ofEpochMilli( mtime ), ZoneId.systemDefault() ) );
+
+            return fileDTO;
+
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Change file permissions
+     */
+    public void changePermissions( Long siteId, String filePath, String permissions ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
+        ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
+
+            int perms = Integer.parseInt( permissions, 8 ); // Parse octal
+            log.info( "Changing permissions on site {} for {}: {}",
+                    site.getSiteName(), filePath, permissions );
+
+            channelSftp.chmod( perms, filePath );
+            log.info( "Permissions changed successfully" );
+
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Test SFTP connection - useful for debugging
+     */
+    public Map<String, Object> testConnection( Long siteId ) throws Exception
+    {
+        Site site = siteRepository.findById( siteId )
+                .orElseThrow( () -> new RuntimeException( "Site not found" ) );
+
+        ChannelSftp channelSftp = null;
+        try
+        {
+            channelSftp = getChannel( site );
+
+            String pwd = channelSftp.pwd();
+            String home = channelSftp.getHome();
 
             Map<String, Object> info = new HashMap<>();
-            info.put("name", remotePath.substring(remotePath.lastIndexOf('/') + 1));
-            info.put("path", remotePath);
-            info.put("size", attrs.getSize());
-            info.put("isDirectory", attrs.isDir());
-            info.put("permissions", attrs.getPermissionsString());
-            info.put("owner", attrs.getUId());
-            info.put("group", attrs.getGId());
-            info.put("modifiedTime", new Date(attrs.getMTime() * 1000L));
-            info.put("accessTime", new Date(attrs.getATime() * 1000L));
+            info.put( "connected", true );
+            info.put( "currentDirectory", pwd );
+            info.put( "homeDirectory", home );
+            info.put( "siteName", site.getSiteName() );
+            info.put( "host", site.getIpAddress() );
+            info.put( "port", site.getPort() );
+            info.put( "username", site.getUsername() );
+
+            // Test write permissions in home directory
+            try
+            {
+                String testFile = home + "/.write_test_" + System.currentTimeMillis();
+                channelSftp.put( new ByteArrayInputStream( "test".getBytes() ), testFile );
+                channelSftp.rm( testFile );
+                info.put( "writePermission", true );
+                log.info( "✓ Write permission verified in home directory" );
+            }
+            catch (Exception e)
+            {
+                info.put( "writePermission", false );
+                log.warn( "✗ No write permission in home directory: {}", e.getMessage() );
+            }
 
             return info;
 
-        } catch (Exception e) {
-            log.error("Error getting file info: {}", e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        }
+        finally
+        {
+            if ( channelSftp != null && !isSessionCached( site ) )
+            {
+                channelSftp.disconnect();
+            }
         }
     }
 
-    public List<Map<String, Object>> searchFiles(Long siteId, String searchTerm,
-                                                 String basePath, boolean recursive) throws Exception {
-        Site site = getSiteById(siteId);
-        Session session = null;
-        ChannelSftp channelSftp = null;
+    /**
+     * Helper method to get SFTP channel - now public for testing
+     */
+    public ChannelSftp getChannel( Site site ) throws Exception
+    {
+        Session session = getSession( site );
+        ChannelSftp channelSftp = (ChannelSftp) session.openChannel( "sftp" );
+        channelSftp.connect( 30000 ); // 30 second timeout
+        log.debug( "SFTP channel opened for site: {}", site.getSiteName() );
+        return channelSftp;
+    }
 
-        try {
-            session = createSession(site);
-            channelSftp = (ChannelSftp) session.openChannel("sftp");
-            channelSftp.connect();
+    /**
+     * Helper method to get or create SSH session
+     */
+    private Session getSession( Site site ) throws Exception
+    {
+        String sessionKey = site.getId().toString();
 
-            List<Map<String, Object>> results = new ArrayList<>();
-            searchFilesRecursive(channelSftp, basePath, searchTerm.toLowerCase(), recursive, results);
-
-            return results;
-
-        } catch (Exception e) {
-            log.error("Error searching files: {}", e.getMessage());
-            throw e;
-
-        } finally {
-            disconnect(channelSftp, session);
+        // Check if we have a cached session
+        Session session = sessionCache.get( sessionKey );
+        if ( session != null && session.isConnected() )
+        {
+            log.debug( "Using cached session for site: {}", site.getSiteName() );
+            return session;
         }
-    }
 
-    // Helper methods
-    private Site getSiteById(Long siteId) {
-        return siteRepository.findById(siteId)
-                .orElseThrow(() -> new IllegalArgumentException("Site not found"));
-    }
-
-    private Session createSession(Site site) throws JSchException {
+        // Create new session
+        log.info( "Creating new SSH session for site: {}", site.getSiteName() );
         JSch jsch = new JSch();
+        session = jsch.getSession( site.getUsername(), site.getIpAddress(), site.getPort() );
 
-        if (site.getSshKey() != null && !site.getSshKey().isEmpty()) {
-            jsch.addIdentity("site-" + site.getId(),
-                    site.getSshKey().getBytes(),
-                    null,
-                    encryptionUtil.decrypt(site.getEncryptedPassword()).getBytes());
-        }
+        String password = encryptionUtil.decrypt( site.getEncryptedPassword() );
+        session.setPassword( password );
 
-        Session session = jsch.getSession(site.getUsername(), site.getIpAddress(), site.getPort());
+        Properties config = new Properties();
+        config.put( "StrictHostKeyChecking", "no" );
+        config.put( "PreferredAuthentications", "password" );
+        session.setConfig( config );
+        session.setTimeout( 30000 ); // 30 seconds timeout
 
-        if (site.getSshKey() == null || site.getSshKey().isEmpty()) {
-            session.setPassword(encryptionUtil.decrypt(site.getEncryptedPassword()));
-        }
-
-        session.setConfig("StrictHostKeyChecking",
-                site.getKnownHostsEntry() != null ? "yes" : "no");
-        session.setTimeout(30000);
+        log.info( "Connecting to {}@{}:{}", site.getUsername(), site.getIpAddress(), site.getPort() );
         session.connect();
+        log.info( "✓ SSH session established successfully" );
+
+        // Cache the session for reuse
+        sessionCache.put( sessionKey, session );
 
         return session;
     }
 
-    private void disconnect(ChannelSftp channelSftp, Session session) {
-        if (channelSftp != null && channelSftp.isConnected()) {
-            channelSftp.disconnect();
-        }
-        if (session != null && session.isConnected()) {
+    /**
+     * Check if session is cached
+     */
+    private boolean isSessionCached( Site site )
+    {
+        String sessionKey = site.getId().toString();
+        Session session = sessionCache.get( sessionKey );
+        return session != null && session.isConnected();
+    }
+
+    /**
+     * Close cached session for a site
+     */
+    public void closeSession( Long siteId )
+    {
+        String sessionKey = siteId.toString();
+        Session session = sessionCache.remove( sessionKey );
+        if ( session != null && session.isConnected() )
+        {
             session.disconnect();
+            log.info( "Closed cached session for site {}", siteId );
         }
     }
 
-    private void deleteDirectoryRecursive(ChannelSftp channelSftp, String path) throws SftpException {
-        @SuppressWarnings("unchecked")
-        Vector<ChannelSftp.LsEntry> entries = channelSftp.ls(path);
+    /**
+     * Close all cached sessions
+     */
+    public void closeAllSessions()
+    {
+        sessionCache.values().forEach( session ->
+        {
+            if ( session != null && session.isConnected() )
+            {
+                session.disconnect();
+            }
+        } );
+        sessionCache.clear();
+        log.info( "Closed all cached sessions" );
+    }
 
-        for (ChannelSftp.LsEntry entry : entries) {
-            String filename = entry.getFilename();
-            if (!filename.equals(".") && !filename.equals("..")) {
-                String fullPath = path + "/" + filename;
-
-                if (entry.getAttrs().isDir()) {
-                    deleteDirectoryRecursive(channelSftp, fullPath);
-                } else {
-                    channelSftp.rm(fullPath);
+    /**
+     * Helper method to delete directory recursively
+     */
+    private void deleteDirectoryRecursive( ChannelSftp channelSftp, String path ) throws SftpException
+    {
+        Vector<ChannelSftp.LsEntry> list = channelSftp.ls( path );
+        for (ChannelSftp.LsEntry entry : list)
+        {
+            if ( !".".equals( entry.getFilename() ) && !"..".equals( entry.getFilename() ) )
+            {
+                String fullPath = path + "/" + entry.getFilename();
+                if ( entry.getAttrs().isDir() )
+                {
+                    deleteDirectoryRecursive( channelSftp, fullPath );
+                }
+                else
+                {
+                    channelSftp.rm( fullPath );
                 }
             }
         }
-
-        channelSftp.rmdir(path);
+        channelSftp.rmdir( path );
     }
 
-    private void createDirectoryRecursive(ChannelSftp channelSftp, String path) throws SftpException {
-        String[] folders = path.split("/");
-        String currentPath = "";
-
-        for (String folder : folders) {
-            if (folder.length() > 0) {
-                currentPath += "/" + folder;
-                try {
-                    channelSftp.stat(currentPath);
-                } catch (SftpException e) {
-                    channelSftp.mkdir(currentPath);
-                }
-            }
-        }
-    }
-
-    private void searchFilesRecursive(ChannelSftp channelSftp, String path, String searchTerm,
-                                      boolean recursive, List<Map<String, Object>> results) throws SftpException {
-        @SuppressWarnings("unchecked")
-        Vector<ChannelSftp.LsEntry> entries = channelSftp.ls(path);
-
-        for (ChannelSftp.LsEntry entry : entries) {
-            String filename = entry.getFilename();
-            if (filename.equals(".") || filename.equals("..")) {
-                continue;
-            }
-
-            String fullPath = path.equals("/") ? "/" + filename : path + "/" + filename;
-
-            if (filename.toLowerCase().contains(searchTerm)) {
-                Map<String, Object> result = new HashMap<>();
-                result.put("name", filename);
-                result.put("path", fullPath);
-                result.put("size", entry.getAttrs().getSize());
-                result.put("isDirectory", entry.getAttrs().isDir());
-                result.put("modifiedTime", new Date(entry.getAttrs().getMTime() * 1000L));
-                results.add(result);
-            }
-
-            if (recursive && entry.getAttrs().isDir()) {
-                searchFilesRecursive(channelSftp, fullPath, searchTerm, recursive, results);
-            }
-        }
-    }
-
-    private void logTransaction(Site site, String action, String filePath, String checksum,
-                                boolean success, String details) {
-        TransactionLog log = new TransactionLog();
-        log.setSite(site);
-        log.setAction(action);
-        log.setFilePath(filePath);
-        log.setChecksum(checksum);
-        log.setSuccess(success);
-        log.setDetails(details);
-        log.setTimestamp(LocalDateTime.now());
-
-        transactionLogRepository.save(log);
+    /**
+     * Progress callback interface for file transfers
+     */
+    public interface ProgressCallback
+    {
+        void onProgress( long transferred, long total );
     }
 }

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,31 +11,42 @@
         body {
             background-color: #f8f9fa;
         }
+
         .navbar {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
         }
+
         .navbar-brand, .navbar-nav .nav-link {
             color: white !important;
         }
+
         .main-container {
             margin-top: 80px;
         }
+
         .task-card {
             background: white;
             border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
             padding: 20px;
             margin-bottom: 20px;
             position: relative;
         }
+
         .task-status {
             position: absolute;
             top: 20px;
             right: 20px;
         }
-        .task-enabled { color: #28a745; }
-        .task-disabled { color: #dc3545; }
+
+        .task-enabled {
+            color: #28a745;
+        }
+
+        .task-disabled {
+            color: #dc3545;
+        }
 
         .schedule-badge {
             background: #e9ecef;
@@ -44,11 +55,13 @@
             font-size: 0.85rem;
             margin-right: 5px;
         }
+
         .code-editor {
             height: 400px;
             border: 1px solid #dee2e6;
             border-radius: 8px;
         }
+
         .execution-log {
             background: #1e1e1e;
             color: #d4d4d4;
@@ -59,14 +72,24 @@
             overflow-y: auto;
             font-size: 0.9rem;
         }
-        .log-success { color: #4ec9b0; }
-        .log-error { color: #f48771; }
-        .log-warning { color: #ffcc00; }
+
+        .log-success {
+            color: #4ec9b0;
+        }
+
+        .log-error {
+            color: #f48771;
+        }
+
+        .log-warning {
+            color: #ffcc00;
+        }
 
         .day-selector {
             display: flex;
             gap: 5px;
         }
+
         .day-selector label {
             padding: 5px 10px;
             border: 1px solid #dee2e6;
@@ -75,9 +98,11 @@
             user-select: none;
             transition: all 0.2s;
         }
+
         .day-selector input[type="checkbox"] {
             display: none;
         }
+
         .day-selector input[type="checkbox"]:checked + label {
             background: #667eea;
             color: white;
@@ -214,7 +239,8 @@
                             <label class="form-label">Jython Script</label>
                             <div id="codeEditor" class="code-editor"></div>
                             <small class="text-muted mt-2 d-block">
-                                Available variables: site_name, site_host, site_port, site_username, site_password, site_path
+                                Available variables: site_name, site_host, site_port, site_username, site_password,
+                                site_path
                             </small>
                         </div>
                     </div>
@@ -237,7 +263,7 @@
     let editingTaskId = null;
 
     // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         checkAuth();
         loadSites();
         loadTasks();
@@ -262,8 +288,8 @@
     }
 
     function initializeEditor() {
-        require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.34.1/min/vs' }});
-        require(['vs/editor/editor.main'], function() {
+        require.config({paths: {'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.34.1/min/vs'}});
+        require(['vs/editor/editor.main'], function () {
             editor = monaco.editor.create(document.getElementById('codeEditor'), {
                 value: `# Jython script for SFTP automation
 # Available variables: site_name, site_host, site_port, site_username, site_password, site_path
@@ -312,7 +338,7 @@ finally:
 `,
                 language: 'python',
                 theme: 'vs-dark',
-                minimap: { enabled: false },
+                minimap: {enabled: false},
                 automaticLayout: true
             });
         });

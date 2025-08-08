@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SFTP Sites Management</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #5e72e4 0%, #825ee4 100%);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: #5e72e4;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #4c63d2;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
+        .btn-success {
+            background: #2dce89;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #24a46d;
+        }
+
+        .btn-warning {
+            background: #fb6340;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            background: #fa3a0e;
+        }
+
+        .btn-danger {
+            background: #f5365c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #ec0c38;
+        }
+
+        .btn-info {
+            background: #11cdef;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #0da5c0;
+        }
+
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+
+        .toolbar {
+            padding: 20px 30px;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sites-grid {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .site-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .site-card:hover {
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .site-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+
+        .site-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #32325d;
+        }
+
+        .site-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #adb5bd;
+        }
+
+        .site-status.connected {
+            background: #2dce89;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .site-details {
+            color: #8898aa;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .site-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #f1f3f5;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            color: #32325d;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #525f7f;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #5e72e4;
+            box-shadow: 0 0 0 3px rgba(94, 114, 228, 0.1);
+        }
+
+        .password-input-group {
+            position: relative;
+        }
+
+        .password-help {
+            font-size: 12px;
+            color: #8898aa;
+            margin-top: 5px;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #8898aa;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 30px;
+        }
+
+        .alert {
+            padding: 12px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .back-button {
+            background: white;
+            color: #5e72e4;
+            border: 1px solid #5e72e4;
+        }
+
+        .back-button:hover {
+            background: #5e72e4;
+            color: white;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #5e72e4;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🌐 SFTP Sites Management</h1>
+        <button class="btn back-button" onclick="window.location.href='/'">🏠 Back to Dashboard</button>
+    </div>
+
+    <div class="toolbar">
+        <div>
+            <span id="siteCount">0 sites</span>
+        </div>
+        <button class="btn btn-success" onclick="openAddModal()">➕ Add New Site</button>
+    </div>
+
+    <div class="sites-grid" id="sitesGrid">
+        <!-- Sites will be loaded here -->
+    </div>
+</div>
+
+<!-- Add/Edit Site Modal -->
+<div class="modal" id="siteModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">Add New Site</h2>
+        </div>
+
+        <div class="alert alert-info" id="passwordAlert" style="display: none;">
+            ℹ️ Leave password blank to keep the existing password unchanged.
+        </div>
+
+        <div class="alert alert-error" id="errorAlert" style="display: none;">
+            <span id="errorMessage"></span>
+        </div>
+
+        <form id="siteForm">
+            <input type="hidden" id="siteId">
+
+            <div class="form-group">
+                <label for="siteName">Site Name *</label>
+                <input type="text" id="siteName" required placeholder="e.g., Production Server">
+            </div>
+
+            <div class="form-group">
+                <label for="ipAddress">Host/IP Address *</label>
+                <input type="text" id="ipAddress" required placeholder="e.g., 192.168.1.100 or sftp.example.com">
+            </div>
+
+            <div class="form-group">
+                <label for="port">Port *</label>
+                <input type="number" id="port" required value="22" min="1" max="65535">
+            </div>
+
+            <div class="form-group">
+                <label for="username">Username *</label>
+                <input type="text" id="username" required placeholder="e.g., sftpuser">
+            </div>
+
+            <div class="form-group">
+                <label for="password">
+                    Password <span id="passwordLabel">*</span>
+                </label>
+                <div class="password-input-group">
+                    <input type="password" id="password" placeholder="Enter password">
+                    <button type="button" class="password-toggle" onclick="togglePasswordVisibility()">👁️</button>
+                </div>
+                <div class="password-help" id="passwordHelp">
+                    Password is required for new sites
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="submitButton">
+                    <span id="submitButtonText">Save Site</span>
+                    <span class="spinner" id="submitSpinner" style="display: none;"></span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // Global variables
+    let sites = [];
+    let editingId = null;
+    let currentSitePassword = null;
+    let passwordIsVisible = false;
+    let isSubmitting = false;
+
+    // Load sites on page load
+    document.addEventListener('DOMContentLoaded', function () {
+        loadSites();
+    });
+
+    // Load all sites
+    async function loadSites() {
+        try {
+            const response = await fetch('/api/sites');
+            if (!response.ok) {
+                throw new Error('Failed to fetch sites');
+            }
+            sites = await response.json();
+            displaySites();
+        } catch (error) {
+            console.error('Error loading sites:', error);
+            showError('Failed to load sites. Please refresh the page.');
+        }
+    }
+
+    // Display sites in grid
+    function displaySites() {
+        const grid = document.getElementById('sitesGrid');
+        const count = document.getElementById('siteCount');
+
+        count.textContent = `${sites.length} site${sites.length !== 1 ? 's' : ''}`;
+
+        if (sites.length === 0) {
+            grid.innerHTML = `
+                <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #8898aa;">
+                    <p style="font-size: 18px; margin-bottom: 20px;">No sites configured yet</p>
+                    <button class="btn btn-primary" onclick="openAddModal()">Add Your First Site</button>
+                </div>
+            `;
+            return;
+        }
+
+        grid.innerHTML = sites.map(site => `
+            <div class="site-card">
+                <div class="site-header">
+                    <div class="site-name">${escapeHtml(site.siteName)}</div>
+                    <div class="site-status" id="status-${site.id}"></div>
+                </div>
+                <div class="site-details">📍 ${escapeHtml(site.ipAddress)}:${site.port}</div>
+                <div class="site-details">👤 ${escapeHtml(site.username)}</div>
+                <div class="site-details">🔐 Password configured</div>
+                <div class="site-actions">
+                    <button class="btn btn-info btn-sm" onclick="testConnection(${site.id})">Test</button>
+                    <button class="btn btn-primary btn-sm" onclick="openFileManager(${site.id})">Files</button>
+                    <button class="btn btn-warning btn-sm" onclick="openEditModal(${site.id})">Edit</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteSite(${site.id})">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Escape HTML to prevent XSS
+    function escapeHtml(unsafe) {
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    // Open add modal
+    function openAddModal() {
+        editingId = null;
+        currentSitePassword = null;
+        passwordIsVisible = false;
+
+        document.getElementById('modalTitle').textContent = 'Add New Site';
+        document.getElementById('siteForm').reset();
+        document.getElementById('passwordAlert').style.display = 'none';
+        document.getElementById('errorAlert').style.display = 'none';
+        document.getElementById('passwordLabel').textContent = '*';
+        document.getElementById('passwordHelp').textContent = 'Password is required for new sites';
+        document.getElementById('password').required = true;
+        document.getElementById('password').placeholder = 'Enter password';
+        document.getElementById('siteModal').classList.add('active');
+    }
+
+    // Open edit modal
+    async function openEditModal(id) {
+        editingId = id;
+        passwordIsVisible = false;
+        currentSitePassword = null;
+
+        try {
+            const response = await fetch(`/api/sites/${id}`);
+            if (!response.ok) {
+                throw new Error('Failed to load site');
+            }
+            const site = await response.json();
+
+            document.getElementById('modalTitle').textContent = 'Edit Site';
+            document.getElementById('siteId').value = site.id;
+            document.getElementById('siteName').value = site.siteName;
+            document.getElementById('ipAddress').value = site.ipAddress;
+            document.getElementById('port').value = site.port;
+            document.getElementById('username').value = site.username;
+
+            // Set password field
+            const passwordInput = document.getElementById('password');
+            if (site.password && site.password.length > 0) {
+                passwordInput.value = site.password;
+                currentSitePassword = site.password;
+            } else if (site.hasPassword) {
+                const defaultDots = '••••••••';
+                passwordInput.value = defaultDots;
+                currentSitePassword = defaultDots;
+            } else {
+                passwordInput.value = '';
+                currentSitePassword = '';
+            }
+
+            passwordInput.type = 'password';
+            passwordInput.placeholder = 'Leave blank to keep current password';
+            passwordInput.required = false;
+
+            document.getElementById('passwordAlert').style.display = 'block';
+            document.getElementById('errorAlert').style.display = 'none';
+            document.getElementById('passwordLabel').textContent = '(optional)';
+
+            // Update help text
+            const passwordLength = site.passwordLength || (currentSitePassword ? currentSitePassword.length : 0);
+            if (passwordLength > 0) {
+                document.getElementById('passwordHelp').textContent =
+                    `Current password: ${passwordLength} characters. Enter new password to change, or leave to keep existing.`;
+            } else {
+                document.getElementById('passwordHelp').textContent =
+                    'Enter a new password to change it, or leave blank to keep the existing password';
+            }
+
+            document.getElementById('siteModal').classList.add('active');
+        } catch (error) {
+            console.error('Error loading site:', error);
+            alert('Failed to load site details');
+        }
+    }
+
+    // Close modal function
+    function closeModal() {
+        document.getElementById('siteModal').classList.remove('active');
+        document.getElementById('siteForm').reset();
+        document.getElementById('passwordAlert').style.display = 'none';
+        document.getElementById('errorAlert').style.display = 'none';
+        editingId = null;
+        currentSitePassword = null;
+        passwordIsVisible = false;
+        isSubmitting = false;
+
+        // Reset submit button
+        document.getElementById('submitButtonText').textContent = 'Save Site';
+        document.getElementById('submitSpinner').style.display = 'none';
+        document.getElementById('submitButton').disabled = false;
+    }
+
+    // Show error in modal
+    function showError(message) {
+        const errorAlert = document.getElementById('errorAlert');
+        const errorMessage = document.getElementById('errorMessage');
+        if (errorAlert && errorMessage) {
+            errorMessage.textContent = message;
+            errorAlert.style.display = 'block';
+        } else {
+            alert(message);
+        }
+    }
+
+    // Toggle password visibility
+    async function togglePasswordVisibility() {
+        const passwordInput = document.getElementById('password');
+
+        if (!editingId) {
+            // For new sites, just toggle input type
+            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+            return;
+        }
+
+        // Check if user has typed something new
+        const hasUserInput = passwordInput.value !== currentSitePassword &&
+            passwordInput.value !== '' &&
+            !passwordInput.value.includes('•');
+
+        if (hasUserInput) {
+            // User has entered a new password, just toggle visibility
+            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+        } else {
+            // Toggle between dots and actual password
+            if (!passwordIsVisible) {
+                try {
+                    const response = await fetch(`/api/sites/${editingId}?showPassword=true`);
+                    const site = await response.json();
+
+                    if (site.password && !site.passwordError) {
+                        passwordInput.value = site.password;
+                        passwordInput.type = 'text';
+                        passwordIsVisible = true;
+                        document.getElementById('passwordHelp').textContent =
+                            'Showing actual stored password. Enter new password to change.';
+                    } else {
+                        showError('Unable to retrieve password');
+                    }
+                } catch (error) {
+                    console.error('Error fetching password:', error);
+                    showError('Failed to fetch password');
+                }
+            } else {
+                // Hide password again
+                passwordInput.value = currentSitePassword;
+                passwordInput.type = 'password';
+                passwordIsVisible = false;
+                const passwordLength = currentSitePassword ? currentSitePassword.length : 0;
+                document.getElementById('passwordHelp').textContent =
+                    `Current password: ${passwordLength} characters. Enter new password to change, or leave to keep existing.`;
+            }
+        }
+    }
+
+    // Handle form submission
+    document.getElementById('siteForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+
+        // Prevent double submission
+        if (isSubmitting) {
+            console.log('Already submitting, ignoring duplicate submission');
+            return;
+        }
+
+        isSubmitting = true;
+        document.getElementById('submitButtonText').textContent = 'Saving...';
+        document.getElementById('submitSpinner').style.display = 'inline-block';
+        document.getElementById('submitButton').disabled = true;
+        document.getElementById('errorAlert').style.display = 'none';
+
+        const passwordInput = document.getElementById('password');
+        const passwordValue = passwordInput.value;
+
+        const formData = {
+            siteName: document.getElementById('siteName').value.trim(),
+            ipAddress: document.getElementById('ipAddress').value.trim(),
+            port: parseInt(document.getElementById('port').value),
+            username: document.getElementById('username').value.trim()
+        };
+
+        // Validate site name doesn't already exist
+        const duplicateSite = sites.find(site =>
+            site.siteName.toLowerCase() === formData.siteName.toLowerCase() &&
+            site.id !== editingId
+        );
+
+        if (duplicateSite) {
+            showError(`A site with the name "${formData.siteName}" already exists. Please choose a different name.`);
+            isSubmitting = false;
+            document.getElementById('submitButtonText').textContent = 'Save Site';
+            document.getElementById('submitSpinner').style.display = 'none';
+            document.getElementById('submitButton').disabled = false;
+            return;
+        }
+
+        // For new sites, password is required
+        if (!editingId && !passwordValue) {
+            showError('Password is required for new sites');
+            isSubmitting = false;
+            document.getElementById('submitButtonText').textContent = 'Save Site';
+            document.getElementById('submitSpinner').style.display = 'none';
+            document.getElementById('submitButton').disabled = false;
+            return;
+        }
+
+        // For edits, only include password if it's changed
+        if (editingId) {
+            const isPasswordChanged = passwordValue &&
+                passwordValue !== currentSitePassword &&
+                !passwordValue.includes('•');
+
+            if (isPasswordChanged) {
+                formData.password = passwordValue;
+            }
+        } else {
+            formData.password = passwordValue;
+        }
+
+        try {
+            const url = editingId ? `/api/sites/${editingId}` : '/api/sites';
+            const method = editingId ? 'PUT' : 'POST';
+
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+
+            let responseData;
+            try {
+                responseData = await response.json();
+            } catch (e) {
+                responseData = {error: 'Server returned invalid response'};
+            }
+
+            if (response.ok) {
+                // Success
+                await loadSites();
+                closeModal();
+                // Optional: Show success message
+                console.log(editingId ? 'Site updated successfully' : 'Site created successfully');
+            } else {
+                // Handle error
+                if (responseData.error && responseData.error.includes('already exists')) {
+                    // Check if site was actually created
+                    await loadSites();
+                    const siteExists = sites.some(site =>
+                        site.siteName === formData.siteName
+                    );
+                    if (siteExists) {
+                        closeModal();
+                    } else {
+                        showError(responseData.error || 'Failed to save site');
+                    }
+                } else {
+                    showError(responseData.error || 'Failed to save site');
+                }
+            }
+        } catch (error) {
+            console.error('Error saving site:', error);
+            // Try to reload sites in case it worked
+            try {
+                await loadSites();
+                const siteExists = sites.some(site =>
+                    site.siteName === formData.siteName
+                );
+                if (siteExists) {
+                    closeModal();
+                } else {
+                    showError('Network error: ' + error.message);
+                }
+            } catch (reloadError) {
+                showError('Network error: ' + error.message);
+            }
+        } finally {
+            isSubmitting = false;
+            document.getElementById('submitButtonText').textContent = 'Save Site';
+            document.getElementById('submitSpinner').style.display = 'none';
+            document.getElementById('submitButton').disabled = false;
+        }
+    });
+
+    // Test connection
+    async function testConnection(id) {
+        const statusEl = document.getElementById(`status-${id}`);
+        if (statusEl) {
+            statusEl.style.background = '#ffd600'; // Yellow for testing
+        }
+
+        try {
+            const response = await fetch(`/api/sites/test-connection/${id}`, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+
+            let result;
+            if (!response.ok) {
+                // Try POST endpoint as fallback
+                const postResponse = await fetch(`/api/sites/test/${id}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!postResponse.ok) {
+                    throw new Error('Connection test failed');
+                }
+                result = await postResponse.json();
+            } else {
+                result = await response.json();
+            }
+
+            if (result.connected === true) {
+                if (statusEl) {
+                    statusEl.classList.add('connected');
+                    statusEl.style.background = '';
+                }
+                alert('✅ Connection successful!');
+            } else {
+                if (statusEl) {
+                    statusEl.style.background = '#f5365c';
+                }
+                alert('❌ ' + (result.message || 'Unable to connect'));
+            }
+        } catch (error) {
+            console.error('Error testing connection:', error);
+            if (statusEl) {
+                statusEl.style.background = '#f5365c';
+            }
+            alert('❌ Failed to test connection');
+        }
+    }
+
+    // Delete site
+    async function deleteSite(id) {
+        if (!confirm('Are you sure you want to delete this site?')) return;
+
+        try {
+            const response = await fetch(`/api/sites/${id}`, {
+                method: 'DELETE'
+            });
+
+            if (response.ok) {
+                await loadSites();
+                console.log('Site deleted successfully');
+            } else {
+                alert('Failed to delete site');
+            }
+        } catch (error) {
+            console.error('Error deleting site:', error);
+            alert('Failed to delete site');
+        }
+    }
+
+    // Open file manager for site
+    function openFileManager(siteId) {
+        window.location.href = `/file-manager?siteId=${siteId}`;
+    }
+
+    // ESC key to close modal
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            const modal = document.getElementById('siteModal');
+            if (modal.classList.contains('active') && !isSubmitting) {
+                closeModal();
+            }
+        }
+    });
+
+    // Click outside modal to close
+    document.getElementById('siteModal').addEventListener('click', function (event) {
+        if (event.target === this && !isSubmitting) {
+            closeModal();
+        }
+    });
+</script>
+</body>
+</html>
